@@ -1,7 +1,8 @@
 # Changelog
 
-## 2.2.0
+## 2.2.1
 
+- Keep the previous scoreable batch accessible when upgrading from legacy previews; require a rated current batch for every selected direction.
 - Three explicit weekly workflows: read-only next-week preview, reselect current week, and rated-batch acceleration. All workflows avoid previously displayed papers, including previews.
 - Enforce completed saved ratings before acceleration and refuse preview feedback. Reselect preserves active feedback policy and replaces the week's history slot without implicit negative ratings.
 - Per-topic core/related targets default to5+15. Expand retrieval automatically, retain title-only relevant papers, and verify public-homepage abstract metadata. Remove manual pagination from the UI.

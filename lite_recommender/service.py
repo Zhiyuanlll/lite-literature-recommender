@@ -318,6 +318,7 @@ class Service:
                 if not base or base['mode'] in ('preview','demo') or base['status'] not in ('complete','partial'):
                     raise ValueError('请先生成本周推荐并完成评分，再加速迭代')
                 base_papers=[v for v in self.store.run_papers(base['run_id']) if v['topic_id'] in {p['topic_id'] for p in profiles}]
+                if {p['topic_id'] for p in profiles}-{p['topic_id'] for p in base_papers}:raise ValueError('所选方向尚无当前评分清单，请先重选本周推荐')
                 if not base_papers:raise ValueError('当前清单没有所选方向，请先重选本周推荐')
                 missing=[]
                 for item in base_papers:

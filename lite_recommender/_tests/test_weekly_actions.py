@@ -61,3 +61,10 @@ class WeeklyActionTests(unittest.TestCase):
         with patch('lite_recommender.sources.search',side_effect=fetch) as fetcher:
             found,errors=search(profile,{'core':1,'related':1},{},self.s.now().date(),['crossref'],self.s.workspace/'cache')
         self.assertEqual(fetcher.call_count,2);self.assertEqual(profile['_search_diagnostics']['stop_reason'],'groups_filled')
+
+    def test_acceleration_requires_a_batch_for_each_selected_topic(self):
+        self.run_action('reselect','first')
+        for p in self.s.store.run_papers('first'):self.rate('first',p)
+        self.s.save_topic({'topic_id':'other','title':'Other','group':'Test','active':True,'stage':'focus','questions':['Robot movement?'],'keywords':['robot','movement'],'core_concepts':[['robot'],['movement']],'method_terms':[]})
+        with self.assertRaisesRegex(ValueError,'尚无当前评分清单'):
+            self.run_action('accelerate','missing-topic',base_run_id='first')

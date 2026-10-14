@@ -86,7 +86,7 @@ function renderState() {
   $('#stat-runs').textContent = state.iteration_count ?? 0;
   $('#stat-feedback').textContent = state.stats.rated ?? state.stats.feedback_count ?? state.stats.ratings ?? state.stats.feedback ?? 0;
   const runs = [...state.runs].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  $('#run-select').innerHTML = runs.length ? runs.map(r => `<option value="${escapeHTML(runID(r))}">${escapeHTML(dateText(r.created_at) || runID(r))}${isDemo(r) ? ' · 离线演示' : r.mode === 'preview' ? ' · 下周预览（不可评分）' : r.action === 'accelerate' ? ' · 加速迭代（可评分）' : r.action === 'weekly' || r.action === 'reselect' ? ` · 本周推荐 ${r.week || ''}` : ' · 历史推荐'} · ${r.count ?? '?'} 篇${r.status === 'error' ? ' · 失败' : ''}</option>`).join('') : '<option value="">尚无推荐记录</option>';
+  $('#run-select').innerHTML = runs.length ? runs.map(r => `<option value="${escapeHTML(runID(r))}">${escapeHTML(dateText(r.created_at) || runID(r))}${isDemo(r) ? ' · 离线演示' : r.mode === 'preview' ? ' · 下周预览（不可评分）' : r.current_feedback ? ' · 当前可评分清单' : r.action === 'accelerate' ? ' · 加速迭代（可评分）' : r.action === 'weekly' || r.action === 'reselect' ? ` · 本周推荐 ${r.week || ''}` : ' · 历史推荐'} · ${r.count ?? '?'} 篇${r.status === 'error' ? ' · 失败' : ''}</option>`).join('') : '<option value="">尚无推荐记录</option>';
   if (currentRun) $('#run-select').value = currentRun.run_id || currentRun.id;
   const busy=!!currentJob || feedbackSaving;
   const activeSelected=state.topics.some(t=>t.active!==false && selectedTopics.has(t.id));
@@ -94,8 +94,10 @@ function renderState() {
   $('#reselect-run').disabled=busy || !activeSelected;
   const basis=feedbackBasis();
   const basisPapers=(basis?.papers || []).filter(p=>selectedTopics.has(p.topic_id));
-  $('#real-run').disabled=busy || !activeSelected || !basis || (basis.papers && (!basisPapers.length || basisPapers.some(p=>!p.feedback?.rating)));
-  $('#real-run').title='完成所选方向当前清单的全部评分并保存后，提供可评分的新文献';
+  $('#real-run').disabled=busy || !activeSelected || !basis || (basis.papers && (!basisPapers.length || basisPapers.some(p=>!p.feedback?.rating) || state.topics.some(t=>t.active!==false && selectedTopics.has(t.id) && !basis.papers.some(p=>p.topic_id===t.id))));
+  const missingTopics=state.topics.filter(t=>t.active!==false && selectedTopics.has(t.id) && basis?.papers && !basis.papers.some(p=>p.topic_id===t.id));
+  const unrated=basisPapers.filter(p=>!p.feedback?.rating).length;
+  $('#real-run').title=missingTopics.length ? `所选方向尚无当前清单：${missingTopics.map(t=>t.title).join('、')}；请先重选本周推荐，或只勾选已有清单的方向` : unrated ? `还有${unrated}篇未评分或未保存；请完成评分并保存全部反馈` : '使用全部已保存评分更新偏好，提供可评分的新文献';
   $('#demo-run').disabled=busy || selectedTopics.size===0;
   renderSemanticStatus();
   updateFeedbackButton();
@@ -190,6 +192,9 @@ function renderPapers() {
 async function refreshState(loadLatest = false) {
   state = await api('/api/state');
   state.topics = state.topics.map(topic => ({...topic, id: topic.id || topic.topic_id}));
+  if (state.current_feedback_run_id && !state.runs.some(r=>runID(r)===state.current_feedback_run_id)) {
+    try {const current=await api(`/api/run?id=${encodeURIComponent(state.current_feedback_run_id)}`);state.runs.push({...current,current_feedback:true});} catch { /* Old data stays readable. */ }
+  }
   renderState();
   if (loadLatest && state.runs.length) {
     const latest = [...state.runs].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];

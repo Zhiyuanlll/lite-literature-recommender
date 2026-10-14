@@ -8,7 +8,7 @@
 
 ## 下载后如何启动
 
-在 Releases 下载 `Lite_Recommender_v2.2.0.zip`，解压到长期保留的代码目录。安装 [Python 3.10 或更新版本](https://www.python.org/downloads/)。以下命令均在**解压后的项目根目录**执行。
+在 Releases 下载 `Lite_Recommender_v2.2.1.zip`，解压到长期保留的代码目录。安装 [Python 3.10 或更新版本](https://www.python.org/downloads/)。以下命令均在**解压后的项目根目录**执行。
 
 建议把个人数据放在代码目录之外，方便之后更换程序版本。下面使用相邻的 `LiteRecommenderData` 文件夹；也可以替换为自己的绝对路径。
 
