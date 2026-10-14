@@ -8,7 +8,7 @@
 
 ## 下载后如何启动
 
-在 Releases 下载 `Lite_Recommender_v2.1.0.zip`，解压到长期保留的代码目录。安装 [Python 3.10 或更新版本](https://www.python.org/downloads/)。以下命令均在**解压后的项目根目录**执行。
+在 Releases 下载 `Lite_Recommender_v2.1.1.zip`，解压到长期保留的代码目录。安装 [Python 3.10 或更新版本](https://www.python.org/downloads/)。以下命令均在**解压后的项目根目录**执行。
 
 建议把个人数据放在代码目录之外，方便之后更换程序版本。下面使用相邻的 `LiteRecommenderData` 文件夹；也可以替换为自己的绝对路径。
 
@@ -170,4 +170,4 @@ python3 scripts/verify_release.py
 
 ## 学校访问与本地 PDF
 
-v2.1.0 支持可选 Elsevier 官方接口、本地 PDF 导入与网页机构浏览器下载。机构登录及外部 DOI 查询均无需填写链接。摘要候选经人工确认后用于后续评分。见[配置与使用说明](docs/学校访问与PDF导入.md)。
+v2.1.1 支持可选 Elsevier 官方接口、本地 PDF 导入与网页机构浏览器下载。机构登录及外部 DOI 查询均无需填写链接。摘要候选经人工确认后用于后续评分。见[配置与使用说明](docs/学校访问与PDF导入.md)。

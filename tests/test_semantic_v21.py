@@ -181,7 +181,7 @@ class SemanticTests(unittest.TestCase):
         self.assertFalse(remote_options["token"])
         self.assertEqual(remote_options["model_kwargs"], {"use_safetensors": True})
         local_name, local_options = constructor_calls[1]
-        self.assertEqual(local_name, str(destination))
+        self.assertEqual(Path(local_name).resolve(), destination.resolve())
         self.assertTrue(local_options["local_files_only"])
         self.assertEqual(local_options["device"], "cpu")
         self.assertFalse(local_options["trust_remote_code"])

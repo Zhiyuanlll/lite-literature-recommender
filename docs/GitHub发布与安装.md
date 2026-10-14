@@ -7,9 +7,9 @@
 从本仓库右侧 **Releases** 进入稳定发行页，下载维护者上传的：
 
 ```text
-Lite_Recommender_v2.1.0.zip
-Lite_Recommender_v2.1.0.zip.sha256
-Lite_Recommender_v2.1.0.MANIFEST.json
+Lite_Recommender_v2.1.1.zip
+Lite_Recommender_v2.1.1.zip.sha256
+Lite_Recommender_v2.1.1.MANIFEST.json
 ```
 
 发行 ZIP 包括程序、网页资源、启动脚本、使用文档、通用方向示例和测试。旁边的 `Source code (zip/tar.gz)` 是 GitHub 自动生成的源码快照，也可运行，但不等于维护者构建并校验过的发行包。
@@ -17,20 +17,20 @@ Lite_Recommender_v2.1.0.MANIFEST.json
 校验 SHA-256。Linux：
 
 ```bash
-sha256sum -c Lite_Recommender_v2.1.0.zip.sha256
+sha256sum -c Lite_Recommender_v2.1.1.zip.sha256
 ```
 
 macOS：
 
 ```bash
-shasum -a 256 Lite_Recommender_v2.1.0.zip
+shasum -a 256 Lite_Recommender_v2.1.1.zip
 ```
 
 Windows PowerShell：
 
 ```powershell
-Get-FileHash .\Lite_Recommender_v2.1.0.zip -Algorithm SHA256
-Get-Content .\Lite_Recommender_v2.1.0.zip.sha256
+Get-FileHash .\Lite_Recommender_v2.1.1.zip -Algorithm SHA256
+Get-Content .\Lite_Recommender_v2.1.1.zip.sha256
 ```
 
 比对完整哈希值。校验值用于完整性核对，不是发布者身份签名；请从可信的仓库发行页取得文件和校验值。
@@ -42,7 +42,7 @@ Get-Content .\Lite_Recommender_v2.1.0.zip.sha256
 
    ```text
    LiteratureTools/
-   ├── Lite_Recommender_v2.1.0/       程序，可以更换版本
+   ├── Lite_Recommender_v2.1.1/       程序，可以更换版本
    └── LiteRecommenderData/           个人数据，升级时继续保留
    ```
 

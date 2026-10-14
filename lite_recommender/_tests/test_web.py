@@ -106,9 +106,9 @@ class WebTests(unittest.TestCase):
             status, result = self.json_request('POST', '/api/pdf-import', payload)
             self.assertEqual(status, 200);self.assertTrue(importer.called)
             importer.reset_mock()
-            status, result = self.json_request('POST', '/api/pdf-import', payload, {'X-Lite-Token':'wrong'})
+            status, result = self.json_request('POST', '/api/pdf-import', {}, {'X-Lite-Token':'wrong'})
             self.assertEqual(status, 403);self.assertFalse(importer.called)
-            status, result = self.json_request('POST', '/api/settings', payload)
+            status, _, _ = self.request('POST', '/api/settings', headers={'Content-Length':str(MAX_BODY+1)}, raw=b'')
             self.assertEqual(status, 413)
 
     def test_state_and_health(self):

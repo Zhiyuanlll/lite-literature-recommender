@@ -100,4 +100,22 @@ class AccessTests(unittest.TestCase):
             abstract, warning = access._extract_abstract(Path('fixture.pdf'))
             self.assertFalse(abstract); self.assertIn('pdftotext', warning)
 
+    def test_flattened_keyword_heading_ends_abstract_without_body(self):
+        paragraph = ('This test abstract describes a robot movement model. '
+                     'Its keywords are ordinary words within this sentence. '
+                     'The fixture contains no scientific claims.')
+        for heading in ('Keywords:', 'Key words:', 'Index terms:', '关键词：'):
+            with self.subTest(heading=heading):
+                text = ('Test paper title Abstract ' + paragraph + ' ' + heading
+                        + ' robot 1 Introduction The body should not be included.')
+                def write_flattened_text(args, **kwargs):
+                    Path(args[-1]).write_text(text, encoding='utf-8')
+                with patch.object(access.shutil, 'which', return_value='pdftotext'), \
+                     patch.object(access.subprocess, 'run', side_effect=write_flattened_text):
+                    abstract, warning = access._extract_abstract(Path('fixture.pdf'))
+                self.assertEqual(abstract, paragraph)
+                self.assertNotIn('body should', abstract)
+                self.assertIn('keywords are ordinary words', abstract)
+                self.assertIn('人工核对', warning)
+
 if __name__ == '__main__':unittest.main()

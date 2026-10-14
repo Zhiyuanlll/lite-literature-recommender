@@ -136,7 +136,15 @@ def _extract_abstract(path):
             if textpath.stat().st_size > 2 * 1024 * 1024:
                 raise ValueError("extracted text too large")
             text = textpath.read_text(encoding="utf-8", errors="replace")
-            match = re.search(r"(?:\babstract\b|摘\s*要)\s*[:：]?\s*(.{80,12000}?)(?=\n\s*(?:key\s*words?\b|index terms\b|关键词|(?:1[.\s]+)?introduction\b|引言)|\Z)", text, re.I | re.S)
+            # Some Poppler/platform combinations flatten section headings onto
+            # one line.  An inline keyword heading requires its colon so that
+            # ordinary mentions of "keywords" inside the abstract remain text.
+            match = re.search(
+                r"(?:\babstract\b|摘\s*要)\s*[:：]?\s*(.{80,12000}?)"
+                r"(?=\n\s*(?:key\s*words?\b|index terms\b|关键词|(?:1[.\s]+)?introduction\b|引言)"
+                r"|\s+(?:key\s*words?\b|index\s+terms\b|关键词)\s*[:：]|\Z)",
+                text, re.I | re.S,
+            )
             if not match:
                 return "", "未找到明确摘要段落；扫描件需要 OCR，可在下次检索使用其他摘要来源"
             return " ".join(match.group(1).split()), "已提取摘要候选；需人工核对后确认用于后续推荐"

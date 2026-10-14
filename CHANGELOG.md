@@ -1,3 +1,10 @@
+# v2.1.1 — Cross-platform compatibility
+
+- Recognize PDF keyword headings when text extraction collapses line breaks.
+- Compare resolved model directories across Windows short names and macOS aliases.
+- Test early HTTP rejection without relying on OS-specific behavior for unread oversized bodies.
+- Includes all v2.1.0 concept, semantic and institution-browser improvements.
+
 # v2.1.0 — Broader recall, inspectable candidates and optional local semantics
 
 - Add core concept groups with alternative expressions; keep every group represented in query plans and distinguish core coverage from adjacent exploration.
