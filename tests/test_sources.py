@@ -238,7 +238,7 @@ class SearchAndTransportTests(unittest.TestCase):
     def test_legacy_profile_terms_remain_supported(self):
         queries = sources._queries({"include_terms": ["ecosystem", "carbon"], "current_questions": ["land use effects"], "stage": "gap"})
         self.assertEqual(queries[0]["terms"], ["ecosystem", "carbon"])
-        self.assertEqual(queries[2]["terms"], ["ecosystem", "land use effects"])
+        self.assertEqual(queries[2]["terms"], ["ecosystem", "carbon", "land use effects"])
 
     def test_unknown_sources_and_empty_profile_report_no_results(self):
         papers, warnings = sources.search({}, 10, ["unknown"])

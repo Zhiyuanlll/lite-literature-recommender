@@ -9,7 +9,7 @@ from . import __version__
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Lite Recommender 2.0 — 通用本地文献推荐与评分反馈")
+    parser = argparse.ArgumentParser(description="Lite Recommender 2.1 — 通用本地文献推荐与评分反馈")
     parser.add_argument("--workspace", default="workspace", help="独立数据目录；默认当前目录/workspace")
     parser.add_argument("--version", action="version", version="Lite Recommender " + __version__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -23,6 +23,10 @@ def main(argv=None):
     run.add_argument("--demo", action="store_true", help="仅使用标记的合成候选，不联网")
     run.add_argument("--preview", action="store_true", help="真实检索预览，不占周配额、不改变正式推送去重记录")
     run.add_argument("--run-id")
+    run.add_argument('--search-page',type=int,default=0)
+    run.add_argument('--parent-run-id',help='连续分页预览的上一批次ID')
+    semantic = sub.add_parser('semantic-setup',help='显式下载本地语义模型；须预先安装可选依赖')
+    semantic.add_argument('--model-dir',help='工作区 _shared/models 下的模型目录')
     fb = sub.add_parser("feedback", help="评分与原因，none撤回评分")
     fb.add_argument("--topic", required=True)
     fb.add_argument("--paper", required=True)
@@ -60,7 +64,9 @@ def main(argv=None):
                 service.seed_examples()
             result = {"workspace": str(service.workspace), "topics": len(service.store.topics()), "scheduler_enabled": service.settings["schedule"]["enabled"]}
         elif args.command == "run":
-            result = service.run(args.topic, args.demo, args.run_id, preview=args.preview)
+            result = service.run(args.topic,args.demo,args.run_id,preview=args.preview,search_page=args.search_page,parent_run_id=args.parent_run_id)
+        elif args.command == 'semantic-setup':
+            result = service.setup_semantic(args.model_dir)
         elif args.command == "feedback":
             rating = None if args.rating.lower() in ("none", "null", "待评") else int(args.rating)
             result = service.feedback({"topic_id": args.topic, "paper_id": args.paper, "profile_version": args.profile_version, "rating": rating, "reason": args.reason, "note": args.note, "tags": [v.strip() for v in args.tags.split(",") if v.strip()], "read_status": args.status})

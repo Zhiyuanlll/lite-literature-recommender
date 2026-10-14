@@ -1,8 +1,10 @@
 # Lite Recommender v2 — Quick Start
 
 A local literature recommendation and feedback application for any research topic.
-Python 3.10+ is required. Runtime code uses only the Python standard library; no
-package installation, language-model key, or continuously running Codex is needed.
+Python 3.10+ is required. The default mode uses only the Python standard library. Optional local semantic
+ranking needs Sentence Transformers and a downloaded model. No ChatGPT account or
+continuously running Codex is needed; the optional Elsevier API requires your own
+authorized credentials.
 
 ## Start
 
@@ -12,7 +14,7 @@ Extract the source ZIP into a stable folder. On Linux:
 bash scripts/run_linux.sh
 ```
 
-On macOS, double-click `scripts/run_macos.command`, or run `bash scripts/run_linux.sh` in Terminal.
+On macOS, double-click `scripts/run_macos.command`, or run `bash scripts/run_macos.command` in Terminal.
 
 On Windows, double-click `scripts/run_windows.cmd`. Alternatively, from the
 extracted project folder:
@@ -40,8 +42,8 @@ Windows: `scripts\run_windows.cmd -Workspace 'D:\Research\Literature'`.
 ## Choose your own topic
 
 Ordinary initialization starts with no topics. In the local page, add a topic with
-a stable ID, title, group, research questions, English search keywords, method
-terms, exclusions and a stage: `survey`, `gap` or `focus`. Enable the topic when
+a stable ID, title, group, research questions, core concept groups, English search
+keywords, method preferences, exclusions and a stage: `survey`, `gap` or `focus`. Enable the topic when
 ready for real retrieval.
 
 Optional, disabled examples demonstrate materials mechanics, DDD, medical imaging
@@ -60,7 +62,7 @@ python -m lite_recommender run --topic medical_imaging --demo --run-id demo-001
 
 Real retrieval uses public Crossref, OpenAlex and arXiv metadata. Individual source
 failures are visible. Network failure never silently substitutes synthetic papers.
-The default weekly global budget is 10 recommendations across all topics and runs.
+The default weekly budget is 10 recommendations per topic. Each topic has an independent counter shared by its formal runs; other topics do not consume its quota.
 Set a higher positive integer in Settings if needed. Real search preview uses the
 configured sources without consuming the weekly budget or changing formal delivery
 history; it may include previously recommended papers. Fewer papers are returned
@@ -77,10 +79,30 @@ use the latest effective feedback within the topic/profile version. No rating me
 unknown, not negative. At least three rated papers and two attributed examples of
 the same tag are required before a bounded adjustment is applied.
 
-The baseline score is rule-based title/abstract matching, not a quality probability
-or semantic reading model. Reports distinguish abstract evidence from metadata.
+Core recommendations require coverage of each configured concept group. Synonyms
+within a group are alternatives; methods add preference points rather than serving
+as a mandatory gate. Optional local semantic similarity assists ranking; neither
+score is a quality probability. Reports distinguish abstract evidence from metadata.
 Candidate questions come from your profile and require evidence checking; the
 application does not perform full-text review or establish novelty/research gaps.
+
+The candidate target defaults to 200 per topic/page and is independent of weekly
+quota. Inspect diagnostics and individual rejection reasons; title-only records
+remain in a pending-verification panel. Continue Search reads the next page using
+the current batch configuration, creates a new preview, and consumes no quota. It
+does not merge pages automatically or turn a preview into a formal run.
+
+## Optional semantic ranking
+
+In a separate environment, run `python -m pip install ".[semantic]"` from the source
+folder and start the server using that same Python. In Settings, explicitly download
+the local model, then enable semantic ranking. The default multilingual E5 small
+model is stored under `<workspace>/_shared/models/multilingual-e5-small`; CPU inference
+uses local files. Ordinary retrieval never installs dependencies or downloads a
+model automatically. Missing dependencies/models or load errors fall back to rule
+ranking with visible status. Model weights and computational libraries are not
+bundled in the shared source ZIP. Feedback updates preferences, not model parameters.
+See [local semantic setup](本地语义增强.md) for platform commands.
 
 ## Export, back up and verify
 
@@ -99,14 +121,19 @@ automatically synchronized live database.
 
 In the web interface, select a real or preview batch, then Export → Download paper
 PDFs (ZIP). This explicitly selects all papers without requiring ratings. Successful
-public PDF files are exported with an itemized report; if none are available, no
+public or authorized official-API PDF files are exported with an itemized report; if none are available, no
 empty ZIP is downloaded. Itemized failure reasons stay visible on the page.
 The optional CLI download command selects real papers rated at least 4, or marked cited, in that run. It uses public HTTPS links from the snapshot, never account cookies or login
 bypass. Downloads are limited to 25 MiB with 15-second network timeouts; failures
 are reported independently. Fake-IP DNS in 198.18.0.0/15 uses authenticated
 Cloudflare DNS-over-HTTPS to obtain verified public addresses; only the publisher
 hostname is sent to the resolver. Private addresses and invalid certificates remain
-blocked. No ChatGPT account, API key or language model is used for ranking or feedback.
+blocked. No ChatGPT account is needed. Optional semantic ranking computes locally. Optional
+Elsevier abstract/PDF access needs the user’s own authorized API credentials,
+configured only in the server environment. Institutional library and optional
+Sci-Hub DOI links open external browser pages; the application does not inherit
+browser authentication or automatically scrape third-party content. Users can
+import local PDFs and confirm extracted abstracts, including pending candidates.
 PDFs are not included in the default backup, and saving
 a PDF does not mean the software has read its full text.
 

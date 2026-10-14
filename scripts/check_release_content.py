@@ -109,8 +109,11 @@ def check_wheel(path: Path, version: str, source: dict[str, bytes]) -> None:
     metadata = BytesParser().parsebytes(payloads[metadata_prefix + "METADATA"])
     if metadata["Name"] != "lite-literature-recommender" or metadata["Version"] != version:
         raise ValueError("Wheel project metadata does not match source release")
-    if metadata.get_all("Requires-Dist"):
-        raise ValueError("This stdlib-only application unexpectedly declares runtime dependencies")
+    requirements = metadata.get_all('Requires-Dist') or []
+    extras = {'semantic': 'sentence-transformers', 'browser': 'playwright'}
+    for requirement in requirements:
+        if not any(requirement.lower().startswith(package) and (f'extra == "{extra}"' in requirement or f"extra == '{extra}'" in requirement) for extra, package in extras.items()):
+            raise ValueError('Base installation must not require optional dependencies')
 
 
 def main() -> int:

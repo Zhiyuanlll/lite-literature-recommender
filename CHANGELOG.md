@@ -1,3 +1,23 @@
+# v2.1.0 — Broader recall, inspectable candidates and optional local semantics
+
+- Add core concept groups with alternative expressions; keep every group represented in query plans and distinguish core coverage from adjacent exploration.
+- Make method matching a preference bonus rather than a mandatory gate, and use bounded effective feedback in score eligibility.
+- Set an independent candidate target of 200 per topic/page, adjustable up to1000; continue source pagination through quota-free previews using the parent batch’s query configuration.
+- Retain title-only records in a pending-verification panel rather than dropping them silently. Show per-topic retrieval/filter counts and candidate rejection reasons.
+- Label core and exploration recommendations. Allow PDF import and manually confirmed abstracts for pending candidates without rewriting historical snapshots.
+- Add optional local Sentence Transformers ranking, CPU inference, explicit model preparation and visible rule-mode fallback. Base installation remains dependency-free; semantic dependencies/models are optional and are not bundled in source releases.
+- Preserve per-topic weekly quotas, Elsevier authorized API enrichment/retrieval, institutional-library links, optional external Sci-Hub DOI navigation and local PDF import from v2.0.5. External navigation does not automatically fetch third-party PDFs or abstracts.
+- Expand installation, migration, algorithm and optional-model documentation for independent local users.
+
+# v2.0.5 — Per-topic quotas and optional publisher access
+
+- Count weekly quotas independently per topic, default 10 each; show each topic's usage.
+- Keep form dialogs open when clicking the backdrop.
+- Add optional Elsevier API abstract enrichment (before ranking, up to20 attempts per topic/run) and authorized PDF retrieval with public-link fallback.
+- Keep API credentials in service environment; no credential redirects, browser passwords or cookies.
+- Add configured institutional-library and optional Sci-Hub external DOI navigation links. External links do not automatically fetch content.
+- Import user-supplied PDFs, optionally extract abstract candidates using Poppler, and require manual confirmation before updating future metadata. Historical recommendations stay frozen.
+
 # v2.0.4 — GitHub stable release
 
 - Prepare a clean repository, contributor and security guidance, and reproducible source/wheel release checks.

@@ -8,10 +8,11 @@ import zipfile
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from . import __version__
+from .access import configuration
 from .storage import Store, FileLock, atomic_json, dump, digest, normalized
 from .ranking import score, select, compute_policy, REASONS
 
-DEFAULT_SETTINGS = {"budget": 10, "sources": ["crossref", "openalex", "arxiv"], "schedule": {"enabled": False, "day": 0, "time": "09:00", "timezone": "Asia/Shanghai"}}
+DEFAULT_SETTINGS = {"candidate_limit": 200, "semantic": {"enabled": False, "model_dir": "_shared/models/multilingual-e5-small", "weight": 0.25}, "publisher_access": {"enabled": False}, "budget": 10, "sources": ["crossref", "openalex", "arxiv"], "schedule": {"enabled": False, "day": 0, "time": "09:00", "timezone": "Asia/Shanghai"}}
 
 
 def week_key(value):
@@ -113,7 +114,19 @@ class Service:
         if not profile["questions"] or not profile["keywords"]:
             raise ValueError("请至少填写一个当前研究问题和一个英文检索关键词")
         profile["priority"] = max(1, min(10, int(profile.get("priority", 1))))
-        significant = ("questions", "keywords", "method_terms", "exclude_terms", "stage")
+        from .concepts import normalize_concepts
+        if 'core_concepts' in payload:
+            raw = payload['core_concepts']
+            if not isinstance(raw, list) or len(raw) > 12 or any(not isinstance(group,list) or not group or len(group)>60 or any(not isinstance(term,str) or not term.strip() or len(term)>200 for term in group) for group in raw):
+                raise ValueError('核心概念须为最多12组词语列表；组内可列同义或关联检索表达')
+            normalized_groups = normalize_concepts({'core_concepts':raw})
+            if existing and not existing.get('core_concepts') and normalized_groups == normalize_concepts(existing):
+                profile.pop('core_concepts',None)
+            elif not raw:
+                profile.pop('core_concepts',None)
+            else:
+                profile['core_concepts'] = normalized_groups
+        significant = ("questions", "keywords", "method_terms", "exclude_terms", "stage", "core_concepts")
         version = str(existing.get("profile_version", "1")) if existing else "1"
         if existing and any(existing.get(k) != profile.get(k) for k in significant):
             try:
@@ -144,6 +157,29 @@ class Service:
 
     def _validate_settings(self, payload):
         settings = {**self.settings, **payload, "schedule": {**self.settings["schedule"], **payload.get("schedule", {})}}
+        access = {**DEFAULT_SETTINGS["publisher_access"], **self.settings.get("publisher_access", {}), **payload.get("publisher_access", {})}
+        if not isinstance(access.get("enabled"), bool):
+            raise ValueError("出版商接口开关须为布尔值")
+        access.pop("library_url", None)
+        access.pop("external_doi_base", None)
+        settings["publisher_access"] = access
+        limit = settings.get('candidate_limit',200)
+        if isinstance(limit,bool) or not re.fullmatch(r'[0-9]+',str(limit)) or not 30 <= int(limit) <= 1000:
+            raise ValueError('每方向候选抓取量须为30–1000整数')
+        settings['candidate_limit'] = int(limit)
+        supplied_semantic = payload.get('semantic', {})
+        if not isinstance(supplied_semantic,dict):
+            raise ValueError('语义设置须为对象')
+        semantic = {**DEFAULT_SETTINGS['semantic'], **self.settings.get('semantic',{}), **supplied_semantic}
+        if not isinstance(semantic.get('enabled'),bool) or isinstance(semantic.get('weight'),bool) or not isinstance(semantic.get('weight'),(int,float)) or not 0 <= semantic['weight'] <= .5:
+            raise ValueError('语义开关须为布尔值、权重须为0–0.5数值')
+        path = Path(str(semantic.get('model_dir') or DEFAULT_SETTINGS['semantic']['model_dir']))
+        models = (self.workspace / '_shared/models').resolve()
+        target = (self.workspace / path).resolve()
+        if target == models or not target.is_relative_to(models) or not target.is_relative_to(self.workspace):
+            raise ValueError('模型目录须位于工作区的 _shared/models 下')
+        semantic['model_dir'] = str(target.relative_to(self.workspace))
+        settings['semantic'] = semantic
         raw_budget = settings.get("budget", 10)
         if isinstance(raw_budget, bool) or not re.fullmatch(r"[0-9]+", str(raw_budget)):
             raise ValueError("每周推荐上限须为正整数")
@@ -194,7 +230,8 @@ class Service:
             raise ValueError("阅读状态无效")
         supplied = payload.get("tags", [])
         tags = terms(supplied)
-        known = set(p["keywords"] + p["method_terms"])
+        from .concepts import normalize_concepts
+        known = set(p['keywords'] + p['method_terms'] + [term for group in normalize_concepts(p) for term in group])
         if not set(tags) <= known:
             raise ValueError("偏好标签必须来自当前方向的关键词或方法词")
         clean = {"topic_id": p["topic_id"], "paper_id": pid, "profile_version": str(p["profile_version"]), "rating": rating, "reason": reason, "read_status": status, "note": str(payload.get("note") or "")[:6000], "tags": tags}
@@ -212,16 +249,30 @@ class Service:
                     stats["high_rated"] += item["rating"] >= 4
                     stats["low_rated"] += item["rating"] <= 2
         stats["satisfaction"] = round(stats["high_rated"] / stats["rated"], 3) if stats["rated"] else None
-        stats["used_this_week"] = self.store.used_budget(week_key(self.now()))
-        return {"topics": self.store.topics(), "settings": self.settings, "runs": self.store.runs(), "stats": stats, "version": __version__, "workspace": str(self.workspace)}
+        week = week_key(self.now())
+        stats["used_this_week"] = self.store.used_budget(week)
+        stats["used_by_topic"] = {p["topic_id"]: self.store.used_budget(week, p["topic_id"]) for p in self.store.topics()}
+        from .concepts import normalize_concepts
+        topics = [{**p, 'core_concepts':normalize_concepts(p), 'core_concepts_inferred':not bool(p.get('core_concepts'))} for p in self.store.topics()]
+        return {"topics": topics, "settings": self.settings, "runs": self.store.runs(), "stats": stats, "version": __version__, "workspace": str(self.workspace), "access_status": configuration(), "semantic_status": self.semantic_status()}
 
-    def run(self, topics=None, demo=False, run_id=None, preview=False):
+    def run(self, topics=None, demo=False, run_id=None, preview=False, search_page=0, parent_run_id=None):
         from . import sources
         from .demo import candidates
+        from .semantic import rerank
         now = self.now()
         week = week_key(now)
         if demo and preview:
             raise ValueError("离线演示和真实预览不能同时启用")
+        if isinstance(search_page, bool) or not isinstance(search_page, int) or not 0 <= search_page <= 100:
+            raise ValueError("检索页须为0–100整数")
+        parent = self.store.run(identifier(parent_run_id)) if parent_run_id else None
+        if parent and parent.get('status') not in ('complete','partial'):
+            raise ValueError('上一批次尚未完成，不能继续分页')
+        if parent_run_id and (not parent or not preview or demo or parent.get('mode') == 'demo' or 'candidate_limit' not in parent):
+            raise ValueError("继续检索须从新版真实批次启动预览")
+        if parent and search_page != parent.get('search_page', 0) + 1:
+            raise ValueError("继续检索的页码须为上一批次下一页")
         mode = "demo" if demo else ("preview" if preview else "real")
         rid = identifier(run_id or week + "-" + mode)
         with FileLock(self.workspace / "_shared/run.lock"):
@@ -230,89 +281,152 @@ class Service:
                 raise ValueError("批次标识已被另一运行模式使用")
             if old and old["status"] in ("complete", "partial"):
                 return {**old, "replayed": True}
-            profiles = [p for p in self.store.topics() if (not topics or p["topic_id"] in topics) and (demo or preview or p.get("active"))]
+            profiles = parent['profiles'] if parent else [p for p in self.store.topics() if (not topics or p["topic_id"] in topics) and (demo or preview or p.get("active"))]
             profiles.sort(key=lambda p: (-p.get("priority", 1), p["topic_id"]))
             if not profiles:
                 raise ValueError("请先新增并启用一个研究方向。演示可使用未启用的示例方向。")
             for p in profiles:
                 if not p["questions"] or not p["keywords"]:
-                    raise ValueError("请先填写方向的研究问题和英文关键词：" + p["topic_id"])
-            remaining = self.settings["budget"] if demo or preview else max(0, self.settings["budget"] - self.store.used_budget(week))
+                    raise ValueError("请先填写研究问题和英文关键词：" + p["topic_id"])
+            limit = (parent or old or {}).get('candidate_limit', self.settings['candidate_limit'])
+            active_sources = (parent or old or {}).get('sources', self.settings['sources'])
+            topic_budgets = {p["topic_id"]: self.settings["budget"] if demo or preview else max(0, self.settings["budget"] - self.store.used_budget(week, p["topic_id"])) for p in profiles}
+            remaining = sum(topic_budgets.values())
             out = self.workspace / "_shared/runs" / rid
             out.mkdir(parents=True, exist_ok=True)
-            result = {"run_id": rid, "id": rid, "mode": mode, "status": "running", "created_at": now.isoformat(), "last_attempt_at": now.isoformat(), "attempts": (old or {}).get("attempts", 0) + 1, "count": 0, "topics": [p["topic_id"] for p in profiles], "profiles": profiles, "warnings": [], "report_path": str(out / "report.md"), "candidate_count": 0, "budget": remaining}
+            result = {"run_id": rid, "id": rid, "mode": mode, "status": "running", "created_at": now.isoformat(), "last_attempt_at": now.isoformat(), "attempts": (old or {}).get("attempts", 0) + 1, "count": 0, "topics": [p["topic_id"] for p in profiles], "profiles": profiles, "warnings": [], "report_path": str(out / "report.md"), "candidate_count": 0, "budget": remaining, "budget_scope": "per_topic", "topic_budgets": topic_budgets, 'candidate_limit': limit, 'sources': active_sources, 'search_page': search_page, 'parent_run_id': parent_run_id, 'diagnostics': {}, 'scoring_version': '2.1'}
             self.store.save_run(result, week)
             try:
-                warnings = result["warnings"]
-                ranked = {}
-                snapshots = []
+                warnings, ranked, snapshots = result["warnings"], {}, []
                 for p in profiles:
                     topicid = p["topic_id"]
+                    topic_remaining = topic_budgets[topicid]
                     feedback = self.store.latest_feedback(topicid, p["profile_version"])
-                    # Synthetic ratings are confined to synthetic runs; they never train real preferences.
                     feedback = {pid: value for pid, value in feedback.items() if bool((self.store.paper(pid) or {}).get("is_demo")) == demo}
                     policy_key = str(p["profile_version"]) + (":demo" if demo else "")
                     policy = compute_policy(p, feedback, self.store.get_policy(topicid, policy_key))
                     frozen_path = out / (topicid + ".snapshot.json")
+                    snapshot = {'profile': p, 'feedback': feedback, 'policy': policy}
                     if old and frozen_path.exists():
-                        snapshot = json.loads(frozen_path.read_text(encoding="utf-8"))
-                        p, feedback, policy = snapshot["profile"], snapshot["feedback"], snapshot["policy"]
-                    else:
-                        atomic_json(frozen_path, {"profile": p, "feedback": feedback, "policy": policy})
-                    snapshots.append({"profile": p, "feedback": feedback, "policy": policy})
-                    if remaining == 0:
+                        snapshot = json.loads(frozen_path.read_text(encoding='utf-8'))
+                        p, feedback, policy = snapshot['profile'], snapshot['feedback'], snapshot['policy']
+                    snapshots.append(snapshot)
+                    if topic_remaining == 0:
+                        warnings.append(topicid + "：本周正式推荐配额已用完；该方向没有再次检索。")
                         ranked[topicid] = []
+                        result['diagnostics'][topicid] = {'raw_count': 0, 'deduped_count': 0, 'seen_count': 0, 'pending_count': 0, 'core_count': 0, 'exploration_count': 0, 'rejected_count': 0, 'selected_count': 0, 'budget_remaining': 0}
                         continue
-                    adjustments = policy.get("adjustments", {})
-                    search_keywords = p["keywords"][:1] + sorted(p["keywords"][1:], key=lambda word: -adjustments.get(word, 0))
-                    search_methods = sorted(p["method_terms"], key=lambda word: -adjustments.get(word, 0))
-                    request_profile = {**p, "keywords": search_keywords, "method_terms": search_methods, "_cache_dir": str(self.workspace / "_shared/cache"), "_run_date": now.date().isoformat()}
-                    snapshots[-1]["search_keywords"] = search_keywords
-                    snapshots[-1]["search_methods"] = search_methods
-                    papers, errors = (candidates(request_profile, 36), []) if demo else sources.search(request_profile, limit=min(1000, max(60, remaining * 6)), sources=self.settings["sources"])
-                    warnings.extend(topicid + ": " + e for e in errors)
-                    raw_ids = []
-                    for paper in papers:
-                        merged = self.store.upsert_paper(paper)
-                        raw_ids.append(merged["paper_id"])
-                    seen = set() if demo or preview else self.store.seen(topicid, mode)
+                    adjustments = policy.get('adjustments', {})
+                    search_keywords = p['keywords'][:1] + sorted(p['keywords'][1:], key=lambda word: -adjustments.get(word, 0))
+                    search_methods = sorted(p['method_terms'], key=lambda word: -adjustments.get(word, 0))
+                    query_profile = {**p, 'keywords': search_keywords, 'method_terms': search_methods}
+                    if parent:
+                        parent_path = self.workspace / '_shared/runs' / parent['run_id'] / (topicid + '.snapshot.json')
+                        parent_snapshot = json.loads(parent_path.read_text(encoding='utf-8'))
+                        query_profile = parent_snapshot.get('request_profile', query_profile)
+                    if old and snapshot.get('request_profile'):
+                        query_profile = snapshot['request_profile']
+                    query_profile = {k:v for k,v in query_profile.items() if not k.startswith('_')}
+                    snapshot.update(request_profile=query_profile, search_keywords=query_profile['keywords'], search_methods=query_profile['method_terms'])
+                    atomic_json(frozen_path, snapshot)
+                    request_profile = {**query_profile, '_cache_dir': str(self.workspace / '_shared/cache'), '_run_date': now.date().isoformat(), '_search_page': search_page, '_search_diagnostics': {}}
+                    papers, errors = (candidates(request_profile, 36), []) if demo else sources.search(request_profile, limit=limit, sources=active_sources)
+                    if not demo:
+                        from .access import enrich
+                        papers, enrichment_errors = enrich(papers, self.settings['publisher_access']['enabled'])
+                        errors.extend(enrichment_errors)
+                    warnings.extend(topicid + ': ' + e for e in errors)
+                    raw_ids = [self.store.upsert_paper(paper)['paper_id'] for paper in papers]
+                    historical = self.store.seen(topicid, 'real') if not demo else set()
                     values = {}
                     for pid in raw_ids:
                         merged = self.store.paper(pid)
-                        if merged["paper_id"] not in seen:
-                            values[merged["paper_id"]] = score(p, merged, policy, now.date())
-                    ranked[topicid] = list(values.values())
-                    result["candidate_count"] += len(papers)
-                    atomic_json(out / (topicid + ".candidates.json"), ranked[topicid])
-                chosen = select(ranked, remaining)
+                        values[merged['paper_id']] = score(p, merged, policy, now.date())
+                    scored = list(values.values())
+                    if not demo:
+                        scored, semantic_warnings, semantic_info = rerank(p, scored, self.semantic_settings(), self.workspace / '_shared/semantic_cache', feedback=feedback, rated_papers={pid:self.store.paper(pid) for pid in feedback})
+                        warnings.extend(topicid + ': ' + e for e in semantic_warnings)
+                    else:
+                        semantic_info = {'enabled': False, 'mode': 'demo'}
+                    for item in scored:
+                        item['previously_recommended'] = item['paper_id'] in historical
+                        item['seen'] = bool(not preview and not demo and item['previously_recommended'])
+                        if item['seen']:
+                            item.update(eligible=False, exploration_eligible=False)
+                            item['rejection_reasons'] = list(item.get('rejection_reasons', [])) + ['already_recommended']
+                    available = [p for p in scored if not p['seen']]
+                    ranked[topicid] = available
+                    counts = {name: sum(p.get('classification') == name for p in available) for name in ('core', 'exploration', 'pending', 'rejected')}
+                    source_info = request_profile['_search_diagnostics']
+                    diagnostics = {**source_info, 'raw_count': source_info.get('raw_count', len(papers)), 'deduped_count': len(scored), 'seen_count': sum(p['seen'] for p in scored), 'previously_recommended_count': sum(p['previously_recommended'] for p in scored), **{name+'_count':value for name,value in counts.items()}, 'selected_count': 0, 'budget_remaining': topic_remaining, 'semantic': semantic_info}
+                    result['diagnostics'][topicid] = diagnostics
+                    result['candidate_count'] += len(papers)
+                    atomic_json(out / (topicid + '.candidates.json'), scored)
+                chosen = [paper for topicid, values in ranked.items() for paper in select({topicid: values}, topic_budgets[topicid])]
+                for topicid in ranked:
+                    result['diagnostics'][topicid]['selected_count'] = sum(p['topic_id'] == topicid for p in chosen)
                 if remaining == 0:
-                    warnings.append("本周真实推荐总预算已用完；没有再次检索或增加文章。")
+                    warnings.append('所选方向本周正式推荐配额均已用完；没有再次检索或增加文章。')
                 elif not chosen:
-                    warnings.append("没有达到摘要依据与相关性门槛的文献；本轮没有凑数。检查检索词或稍后重试来源。")
-                result["count"] = len(chosen)
-                result["status"] = "failed" if remaining and result["candidate_count"] == 0 and warnings else ("partial" if warnings else "complete")
+                    warnings.append('本轮没有可正式推荐的文献；请查看候选与排除原因，缺少摘要的相关条目保留在待核验区。')
+                result['count'] = len(chosen)
+                result['status'] = 'failed' if remaining and result['candidate_count'] == 0 and warnings else ('partial' if warnings else 'complete')
                 if preview:
-                    warnings.append("真实检索预览：不占周配额，不写入正式推送去重记录；可再次出现已推荐论文。仅供调试检索，不提交评分。")
-                result["strategy_changes"] = [{"topic_id": s["profile"]["topic_id"], "rated_count": s["policy"].get("rated_count", 0), "tag_adjustments": s["policy"].get("adjustments", {}), "search_keywords": s.get("search_keywords", s["profile"]["keywords"]), "search_methods": s.get("search_methods", s["profile"]["method_terms"])} for s in snapshots]
-                result["profiles"] = [s["profile"] for s in snapshots]
+                    warnings.append('真实检索预览：不占周配额，不写入正式推送去重记录；可再次出现已推荐论文。仅供调试检索，不提交评分。')
+                result['strategy_changes'] = [{'topic_id':s['profile']['topic_id'], 'rated_count':s['policy'].get('rated_count',0), 'tag_adjustments':s['policy'].get('adjustments',{}), 'search_keywords':s.get('search_keywords',s['profile']['keywords']), 'search_methods':s.get('search_methods',s['profile']['method_terms'])} for s in snapshots]
+                result['profiles'] = [s['profile'] for s in snapshots]
                 self.store.save_run(result, week, chosen)
                 for s in snapshots:
-                    key = str(s["profile"]["profile_version"]) + (":demo" if demo else "")
+                    key = str(s['profile']['profile_version']) + (':demo' if demo else '')
                     if not preview:
-                        self.store.save_policy(s["profile"]["topic_id"], key, s["policy"])
+                        self.store.save_policy(s['profile']['topic_id'],key,s['policy'])
                 for p in profiles:
-                    dest = self.workspace / p["relative_path"] / "runs" / rid
-                    atomic_json(dest / "recommendations.json", [v for v in chosen if v["topic_id"] == p["topic_id"]])
-                atomic_json(out / "result.json", result)
-                (out / "report.md").write_text(self.export_run(rid, "markdown"), encoding="utf-8")
-                (out / "papers.bib").write_text(self.export_run(rid, "bib"), encoding="utf-8")
+                    dest = self.workspace / p['relative_path'] / 'runs' / rid
+                    atomic_json(dest / 'recommendations.json',[v for v in chosen if v['topic_id'] == p['topic_id']])
+                atomic_json(out / 'result.json',result)
+                (out / 'report.md').write_text(self.export_run(rid,'markdown'),encoding='utf-8')
+                (out / 'papers.bib').write_text(self.export_run(rid,'bib'),encoding='utf-8')
                 return result
             except Exception as exc:
-                result["status"] = "failed"
-                result["warnings"].append(str(exc))
-                self.store.save_run(result, week, [])
-                atomic_json(out / "result.json", result)
+                result['status'] = 'failed'
+                result['warnings'].append(str(exc))
+                self.store.save_run(result,week,[])
+                atomic_json(out / 'result.json',result)
                 raise
+
+    def candidate_detail(self, run_id):
+        result = self.store.run(identifier(run_id))
+        if not result:
+            raise ValueError('批次不存在')
+        candidates = []
+        for topicid in result.get('topics', []):
+            path = self.workspace / '_shared/runs' / identifier(run_id) / (identifier(topicid) + '.candidates.json')
+            if path.is_file() and not path.is_symlink():
+                for paper in json.loads(path.read_text(encoding='utf-8')):
+                    canonical = (self.store.paper(paper['paper_id']) or paper)['paper_id']
+                    paper['canonical_paper_id'] = canonical
+                    candidates.append(paper)
+        return {'run_id':run_id, 'candidates':candidates, 'diagnostics':result.get('diagnostics',{})}
+
+    def semantic_status(self):
+        from .semantic import status
+        return status(self.semantic_settings())
+
+    def semantic_settings(self):
+        settings = dict(self.settings['semantic'])
+        settings['model_dir'] = str((self.workspace / settings['model_dir']).resolve())
+        return settings
+
+    def setup_semantic(self, model_dir=None):
+        from .semantic import setup_model
+        configured = dict(self.settings['semantic'])
+        if model_dir:
+            configured['model_dir'] = model_dir
+        validated = self._validate_settings({'semantic':configured})['semantic']
+        target = (self.workspace / validated['model_dir']).resolve()
+        result = setup_model(target)
+        self.save_settings({'semantic':validated})
+        return {**result, 'semantic_setup':True, 'message':'本地语义模型已准备；在设置中启用语义增强即可使用。'}
 
     def run_detail(self, run_id):
         result = self.store.run(run_id)

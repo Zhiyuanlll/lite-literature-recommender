@@ -100,6 +100,17 @@ class WebTests(unittest.TestCase):
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
         self.assertEqual(headers["Cache-Control"], "no-store")
 
+    def test_pdf_import_has_separate_body_limit_and_authentication(self):
+        with patch('lite_recommender.access.import_pdf', return_value={'message':'imported'}) as importer:
+            payload = {'data':'x'*(MAX_BODY+100)}
+            status, result = self.json_request('POST', '/api/pdf-import', payload)
+            self.assertEqual(status, 200);self.assertTrue(importer.called)
+            importer.reset_mock()
+            status, result = self.json_request('POST', '/api/pdf-import', payload, {'X-Lite-Token':'wrong'})
+            self.assertEqual(status, 403);self.assertFalse(importer.called)
+            status, result = self.json_request('POST', '/api/settings', payload)
+            self.assertEqual(status, 413)
+
     def test_state_and_health(self):
         status, state = self.json_request("GET", "/api/state")
         self.assertEqual(status, 200)
@@ -166,7 +177,7 @@ class WebTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertEqual(job["status"], "done")
         self.assertEqual(job["result"]["run_id"], "R1")
-        self.assertEqual(self.service.run_calls[0], {"topics": ["test"], "demo": True, "run_id": None, "preview": False})
+        self.assertEqual(self.service.run_calls[0], {"topics": ["test"], "demo": True, "run_id": None, "preview": False, "search_page":0, "parent_run_id":None})
 
     def test_pdf_download_job_and_zip_delivery(self):
         report = {"downloaded": 1, "already_exists": 0, "no_link": 2, "failed": 0}
@@ -182,7 +193,10 @@ class WebTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertEqual(result["status"], "done")
             self.assertTrue(result["result"]["pdf_export"])
-            downloader.assert_called_once_with(self.service, "R1", select_all=True)
+            self.assertEqual(downloader.call_args.args, (self.service, "R1"))
+            self.assertTrue(downloader.call_args.kwargs["select_all"])
+            self.assertIs(downloader.call_args.kwargs["browser"], self.server.pdf_browser)
+            self.assertTrue(callable(downloader.call_args.kwargs["progress"]))
             status, headers, body = self.request("GET", "/api/pdf-archive?id=R1")
             self.assertEqual(status, 200)
             self.assertEqual(headers["Content-Type"], "application/zip")
@@ -201,6 +215,17 @@ class WebTests(unittest.TestCase):
             self.assertEqual(result["status"], "done")
             self.assertFalse(result["result"]["has_pdfs"])
             archiver.assert_not_called()
+
+    def test_pdf_control_only_signals_a_waiting_job(self):
+        self.assertEqual(self.json_request('POST', '/api/pdf-control', {'job_id': 'missing', 'action': 'continue'})[0], 400)
+        self.server.jobs['fixture'] = {'status': 'running', 'waiting': True}
+        with patch.object(self.server.pdf_browser, 'signal') as signal:
+            status, result = self.json_request('POST', '/api/pdf-control', {'job_id': 'fixture', 'action': 'continue'})
+            self.assertEqual(status, 200)
+            self.assertTrue(result['ok'])
+            signal.assert_called_once_with('continue')
+            self.assertFalse(self.server.jobs['fixture']['waiting'])
+            self.assertEqual(self.json_request('POST', '/api/pdf-control', {'job_id': 'fixture', 'action': 'skip'})[0], 400)
 
     def test_job_failure_and_unknown_job(self):
         self.assertEqual(self.json_request("GET", "/api/job?id=missing")[0], 404)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lite-literature-recommender"
-version = "2.0.4"
+version = "2.1.0"
 description = "Local, explainable multi-topic literature recommendation and feedback"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,10 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Operating System :: OS Independent",
 ]
+
+[project.optional-dependencies]
+semantic = ["sentence-transformers>=3.0,<6"]
+browser = ["playwright>=1.50,<2"]
 
 [project.scripts]
 lite-recommender = "lite_recommender.cli:main"

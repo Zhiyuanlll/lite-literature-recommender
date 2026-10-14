@@ -88,6 +88,40 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.s.run(demo=True, preview=True)
 
+    def test_each_topic_has_independent_weekly_quota(self):
+        fixture = [self.paper(i) for i in range(25)]
+        week = week_key(self.s.now())
+        with patch("lite_recommender.sources.search", return_value=(fixture, [])) as search:
+            self.assertEqual(self.s.run(topics=["topic"], run_id="first-topic")["count"], 10)
+            self.s.save_topic(profile("other"))
+            second = self.s.run(run_id="new-topic")
+            self.assertEqual(second["count"], 10)
+            self.assertEqual(second["topic_budgets"], {"other": 10, "topic": 0})
+            self.assertEqual(search.call_count, 2)
+            self.assertEqual(self.s.store.used_budget(week, "topic"), 10)
+            self.assertEqual(self.s.store.used_budget(week, "other"), 10)
+            preview = self.s.run(run_id="two-topic-preview", preview=True)
+            self.assertEqual(preview["count"], 20)
+            self.assertEqual(self.s.store.used_budget(week), 20)
+            self.s.save_settings({"budget": 12})
+            topup = self.s.run(run_id="topup")
+            self.assertEqual(topup["count"], 4)
+            self.assertEqual(self.s.store.used_budget(week, "topic"), 12)
+            self.assertEqual(self.s.store.used_budget(week, "other"), 12)
+            self.s.save_settings({"budget": 5})
+            self.assertEqual(self.s.run(run_id="lowered")["count"], 0)
+
+    def test_sparse_topic_does_not_transfer_quota(self):
+        self.s.save_topic(profile("other"))
+        fixture = [self.paper(i) for i in range(25)]
+        def search(profile, **kwargs):
+            return (fixture[:2] if profile["topic_id"] == "topic" else fixture, [])
+        with patch("lite_recommender.sources.search", side_effect=search):
+            result = self.s.run(run_id="sparse")
+        papers = self.s.run_detail(result["run_id"])["papers"]
+        self.assertEqual(sum(p["topic_id"] == "topic" for p in papers), 2)
+        self.assertEqual(sum(p["topic_id"] == "other" for p in papers), 10)
+
     def test_higher_budget_and_validation(self):
         self.assertEqual(self.s.settings["budget"], 10)
         self.s.save_settings({"budget": 20})
@@ -103,11 +137,11 @@ class CoreTests(unittest.TestCase):
         fixture = [{**self.paper(i), "doi": "10.1234/real-" + str(i)} for i in range(25)]
         with patch("lite_recommender.sources.search", return_value=(fixture, [])):
             first = self.s.run(run_id="first")
-            self.assertEqual(first["count"], 10)
+            self.assertEqual(first["count"], 20)
             second = self.s.run(run_id="second")
             self.assertEqual(second["count"], 0)
             self.assertTrue(self.s.run(run_id="first")["replayed"])
-        self.assertEqual(self.s.store.used_budget(week_key(self.s.now())), 10)
+        self.assertEqual(self.s.store.used_budget(week_key(self.s.now())), 20)
 
     def test_demo_isolated_and_exports_backup(self):
         result = self.s.run(demo=True, run_id="demotest")

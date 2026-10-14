@@ -1,6 +1,6 @@
 """Small, dependency-free scholarly metadata clients.
 
-The public entry point is ``search(profile, limit=60, sources=None)``.  No
+The public entry point is ``search(profile, limit=200, sources=None)``.  No
 full text is downloaded.  API failures are returned as warnings so that a
 partial result is still usable.  Publication dates are never padded with an
 invented month/day; ``published`` is empty when only a year is known.
@@ -21,6 +21,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
+
+from .concepts import normalize_concepts
 
 DEFAULT_SOURCES = ("crossref", "openalex", "arxiv")
 USER_AGENT = "LiteRecommender/2.0 (scholarly metadata; Python urllib)"
@@ -345,49 +347,86 @@ def _fetch(url: str, profile: dict, source: str, warnings: list[str]) -> bytes:
 
 
 def _queries(profile: dict) -> list[dict]:
-    keywords = _strings(profile.get("keywords") or profile.get("include_terms"))
+    """Bounded lexical expansion, keeping every required concept in each query.
+
+    ``core_concepts`` is an AND of groups; the expressions within a group are
+    alternatives.  The APIs differ in Boolean support, so this layer emits
+    explicit lexical combinations rather than pretending that Crossref's
+    ranked text search implements a strict Boolean filter.  Ranking checks
+    concept coverage afterwards.  Legacy keywords are normalized by the same
+    helper as the ranker so that a third keyword is never silently omitted.
+    """
+    groups = normalize_concepts(profile)
     methods = _strings(profile.get("method_terms"))
     questions = _strings(profile.get("questions") or profile.get("current_questions"))
-    primary = keywords[0] if keywords else str(profile.get("title") or profile.get("topic_id") or "").strip()
-    if not primary:
+    if not groups:
+        fallback = str(profile.get("title") or profile.get("topic_id") or "").strip()
+        groups = [[fallback]] if fallback else []
+    if not groups:
         return []
-    base = [primary]
-    if len(keywords) > 1:
-        base.append(keywords[1])
+    base = [group[0] for group in groups]
+    queries = [{"terms": base, "mode": "relevance"},
+               {"terms": base, "mode": "recent"}]
+    # Expand the problem group first, then the object group, and rotate across
+    # groups.  Avoid a combinatorial product and keep all three sources bounded.
+    for alternative in range(1, max(len(group) for group in groups)):
+        for index in reversed(range(len(groups))):
+            if alternative >= len(groups[index]):
+                continue
+            variant = list(base)
+            variant[index] = groups[index][alternative]
+            if variant != base and not any(query["terms"] == variant for query in queries):
+                queries.append({"terms": variant, "mode": "relevance"})
+                if len(queries) == 6:
+                    return queries
+    # Preferences may narrow a supplemental request, but never replace a
+    # required object/problem concept as they did in the previous query builder.
     stage = str(profile.get("stage", "")).lower()
     if stage in ("review", "survey", "orientation", "beginner", "综述入门", "入门"):
-        third = [primary, "review"]
+        extra = "review"
     elif methods:
-        third = [primary, methods[0]]
-    elif len(keywords) > 2:
-        third = [primary, keywords[2]]
+        extra = methods[0]
     elif questions:
-        third = [primary, questions[0][:180]]
+        extra = questions[0][:180]
     else:
-        third = [primary]
-    return [{"terms": base, "mode": "relevance"},
-            {"terms": base, "mode": "recent"},
-            {"terms": list(dict.fromkeys(third)), "mode": "relevance"}]
+        extra = ""
+    if len(queries) < 6 and extra:
+        supplemental = list(dict.fromkeys(base + [extra]))
+        queries.append({"terms": supplemental, "mode": "relevance"})
+    return queries
 
 
-def _request(source: str, query: dict, count: int) -> str:
+def _request(source: str, query: dict, count: int, page: int = 0) -> str:
+    """Build basic paging requests; use an unchanged page size on continuation.
+
+    Crossref and OpenAlex basic paging cover only their first 10,000 results.
+    This is an interactive bounded search, not a bulk metadata harvester.
+    """
+    if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+        raise ValueError("search page must be a non-negative integer")
     terms = query["terms"]
     recent = query["mode"] == "recent"
     if source == "crossref":
+        if page * count > 10000:
+            raise ValueError("Crossref basic paging exceeds 10000 records; refine the concepts")
         params = {"query": " ".join(terms), "rows": count,
-                  "sort": "published" if recent else "relevance", "order": "desc"}
+                  "sort": "published" if recent else "relevance", "order": "desc",
+                  "offset": page * count}
         email = os.environ.get("CROSSREF_MAILTO", "").strip()
         if email:
             params["mailto"] = email
         return "https://api.crossref.org/works?" + urlencode(params)
     if source == "openalex":
-        params = {"search": " ".join(terms), "per_page": min(100, count)}
+        count = min(200, count)
+        if (page + 1) * count > 10000:
+            raise ValueError("OpenAlex basic paging exceeds 10000 records; refine the concepts")
+        params = {"search": " ".join(terms), "per_page": count, "page": page + 1}
         if recent:
             params["sort"] = "publication_date:desc"
         return "https://api.openalex.org/works?" + urlencode(params)
     expression = " AND ".join('all:"' + term.replace('"', " ") + '"' for term in terms)
     return "https://export.arxiv.org/api/query?" + urlencode({
-        "search_query": expression, "start": 0, "max_results": count,
+        "search_query": expression, "start": page * count, "max_results": count,
         "sortBy": "submittedDate" if recent else "relevance", "sortOrder": "descending",
     })
 
@@ -480,10 +519,18 @@ def merge_candidates(papers: list[dict]) -> list[dict]:
     return merged
 
 
-def search(profile: dict, limit: int = 60, sources: list | None = None) -> tuple[list[dict], list[str]]:
+def search(profile: dict, limit: int = 200, sources: list | None = None) -> tuple[list[dict], list[str]]:
     """Search multiple sources with balanced candidate/query budgets.
 
-    ``keywords``, ``method_terms`` and ``questions`` are discipline-independent.
+    ``limit`` bounds returned records before cross-query/source deduplication,
+    independently of recommendation quotas.  It is not a completeness promise.
+    ``_search_page`` is zero-based and advances all requests by one page.  To
+    continue without skipping/repeating ranges, keep the profile, source list,
+    and limit unchanged.  URLs include paging, so cache entries remain distinct.
+    ``_search_diagnostics`` receives safe counts and lexical query summaries;
+    API credentials and full request URLs are never written into it.
+
+    ``core_concepts``, ``method_terms`` and ``questions`` are discipline-independent.
     For existing profiles ``include_terms`` and ``current_questions`` are
     accepted.  ``_cache_dir`` enables 24-hour caching.  Keys are optional:
     ``OPENALEX_API_KEY`` (Bearer header), ``CROSSREF_MAILTO`` (polite pool).
@@ -496,6 +543,17 @@ def search(profile: dict, limit: int = 60, sources: list | None = None) -> tuple
         return [], []
     if limit > 1000:
         raise ValueError("limit must not exceed 1000")
+    page = profile.get("_search_page", 0)
+    if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+        raise ValueError("search page must be a non-negative integer")
+    diagnostics = profile.get("_search_diagnostics")
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+        profile["_search_diagnostics"] = diagnostics
+    diagnostics.clear()
+    diagnostics.update({"page": page, "limit": limit, "raw_count": 0,
+                        "deduplicated_count": 0, "deduped_count": 0, "duplicate_count": 0,
+                        "source_counts": {}, "query_summaries": [], "errors": []})
     warnings = []
     selected = _strings(DEFAULT_SOURCES if sources is None else sources)
     selected = [source.lower() for source in selected]
@@ -506,6 +564,7 @@ def search(profile: dict, limit: int = 60, sources: list | None = None) -> tuple
     queries = _queries(profile)
     if not selected or not queries:
         warnings.append("未提供有效检索来源或主题关键词，未检索候选文献。")
+        diagnostics["errors"] = list(warnings)
         return [], warnings
     parsers = {"crossref": _crossref_items, "openalex": _openalex_items, "arxiv": _arxiv_items}
     source_results = [[] for _ in selected]
@@ -515,20 +574,39 @@ def search(profile: dict, limit: int = 60, sources: list | None = None) -> tuple
         query_results = []
         for query_index, query in enumerate(queries):
             count = budget // len(queries) + int(query_index < budget % len(queries))
+            # OpenAlex's basic page size is 200.  The limit is a ceiling rather
+            # than an instruction to exceed a source's supported request size.
+            if source == "openalex":
+                count = min(200, count)
             if count <= 0:
                 continue
+            summary = {"source": source, "terms": list(query["terms"]),
+                       "mode": query["mode"], "page": page, "requested": count,
+                       "returned": 0, "status": "ok"}
+            diagnostics["query_summaries"].append(summary)
             try:
-                papers = parsers[source](_fetch(_request(source, query, count), profile, source, warnings))[:count]
+                papers = parsers[source](_fetch(_request(source, query, count, page), profile, source, warnings))[:count]
             except (RuntimeError, ValueError, TypeError, KeyError, ET.ParseError) as error:
-                detail = str(error) if isinstance(error, RuntimeError) else type(error).__name__
+                # The transport emits controlled HTTP/type messages; a custom
+                # boundary exception must not leak URLs, credentials, or bodies.
+                detail = str(error) if isinstance(error, RuntimeError) and re.fullmatch(r"HTTP \d{3}|[A-Za-z]+Error|network error", str(error)) else type(error).__name__
+                summary["status"] = "failed"
+                summary["error"] = detail
                 warnings.append(f"{source} 检索失败（{detail}），本轮继续使用其他来源；结果可能不完整。")
                 break
+            summary["returned"] = len(papers)
+            diagnostics["raw_count"] += len(papers)
             for paper in papers:
                 paper["retrieved_for"] = [" ".join(query["terms"])]
                 paper["query_mode"] = query["mode"]
             query_results.append(papers)
         source_results[source_index] = _round_robin(query_results)
+        diagnostics["source_counts"][source] = len(source_results[source_index])
     combined = merge_candidates(_round_robin(source_results))[:limit]
+    diagnostics["deduplicated_count"] = len(combined)
+    diagnostics["deduped_count"] = len(combined)
+    diagnostics["duplicate_count"] = diagnostics["raw_count"] - len(combined)
     if not combined:
         warnings.append("在线检索未获得候选文献。可检查网络或关键词；演示候选须显式选择 demo 模式。")
-    return combined, list(dict.fromkeys(warnings))
+    diagnostics["errors"] = list(dict.fromkeys(warnings))
+    return combined, diagnostics["errors"]

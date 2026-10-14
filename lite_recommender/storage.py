@@ -253,6 +253,11 @@ class Store:
             redirects = {r[0]: r[1] for r in conn.execute("SELECT old_id,new_id FROM redirects")}
             return {redirects.get(r[0], r[0]) for r in conn.execute("SELECT DISTINCT paper_id FROM recommendations JOIN runs ON runs.id=run_id WHERE topic_id=? AND mode=? AND runs.status IN ('complete','partial')", (topic_id, mode))}
 
-    def used_budget(self, week):
+    def used_budget(self, week, topic_id=None):
         with self.connect() as conn:
-            return conn.execute("SELECT COUNT(*) FROM recommendations JOIN runs ON runs.id=run_id WHERE runs.week=? AND runs.mode='real' AND runs.status IN ('complete','partial')", (week,)).fetchone()[0]
+            query = "SELECT COUNT(*) FROM recommendations JOIN runs ON runs.id=run_id WHERE runs.week=? AND runs.mode='real' AND runs.status IN ('complete','partial')"
+            params = [week]
+            if topic_id is not None:
+                query += " AND recommendations.topic_id=?"
+                params.append(topic_id)
+            return conn.execute(query, params).fetchone()[0]

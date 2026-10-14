@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.browser-binaries/
 venv/
 workspace/
 dist/

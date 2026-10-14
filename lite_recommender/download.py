@@ -1,7 +1,8 @@
-"""Optional public-PDF retrieval for user-selected papers; no account access.
+"""PDF retrieval for user-selected papers, with an optional isolated browser.
 
 Connections pin a validated public IP while retaining TLS hostname verification.
-Redirects are separately checked.  This module never sends cookies or credentials.
+Redirects are separately checked. Direct requests never send cookies or credentials;
+the optional browser handles its own authentication within its separate contexts.
 """
 from __future__ import annotations
 
@@ -244,7 +245,8 @@ def _links(paper: dict) -> list[str]:
     return list(dict.fromkeys(value.strip() for value in values if isinstance(value, str) and value.strip()))
 
 
-def download_run(service, run_id: str, min_rating: int = 4, select_all: bool = False) -> dict:
+def download_run(service, run_id: str, min_rating: int = 4, select_all: bool = False,
+                 browser=None, progress=lambda **kw: None) -> dict:
     """Download only real papers with user rating >= threshold, or cited status.
 
     Outcomes are saved separately; recommendations, scores and feedback are unchanged.
@@ -273,6 +275,7 @@ def download_run(service, run_id: str, min_rating: int = 4, select_all: bool = F
         raise ValueError("下载锁不能是符号链接")
     with FileLock(lock_path):
         for paper in result.get("papers", []):
+            progress(message="正在获取：" + str(paper.get("title", "")), waiting=False)
             snapshot_pid = str(paper.get("paper_id", ""))
             pid = str(paper.get("canonical_paper_id") or snapshot_pid)
             item = {"paper_id": pid, "snapshot_paper_id": snapshot_pid,
@@ -296,8 +299,17 @@ def download_run(service, run_id: str, min_rating: int = 4, select_all: bool = F
                     if _valid_pdf(destination):
                         item["status"] = "already_exists"
                     else:
+                        from .access import configuration, is_elsevier, official_pdf
+                        if getattr(service, "settings", {}).get("publisher_access", {}).get("enabled") and configuration()["elsevier_key_configured"] and is_elsevier(paper):
+                            try:
+                                item.update(official_pdf(paper, destination))
+                                item["status"] = "downloaded"
+                            except Exception:
+                                item["publisher_attempt"] = "Elsevier API 未取得有效PDF，已尝试后续下载来源"
                         urls = _links(paper)
-                        if not urls:
+                        if item.get("status") == "downloaded":
+                            pass
+                        elif not urls:
                             item["status"] = "no_link"
                             item["message"] = "快照没有公开 PDF 直链，请从论文原始页面按权限获取"
                         else:
@@ -313,6 +325,13 @@ def download_run(service, run_id: str, min_rating: int = 4, select_all: bool = F
                                 item["attempt_errors"] = errors
                             if "status" not in item:
                                 item["status"] = "failed"
+                        if item.get("status") != "downloaded" and browser is not None:
+                            try:
+                                item.pop("message", None)
+                                item.update(browser.download(paper, destination, progress))
+                                item["status"] = "downloaded"
+                            except Exception as exc:
+                                item.update(status="failed", message=str(exc)[:800])
                 except Exception as exc:
                     item.update(status="failed", message=str(exc)[:800])
             if item["status"] == "failed" and not item.get("message"):
@@ -354,7 +373,7 @@ def pdf_archive(service, run_id: str) -> Path:
                 summary = {k: report[k] for k in ["run_id", "created_at", "downloaded", "already_exists", "failed", "no_link", "not_selected", "demo_skipped"]}
                 summary["items"] = []
                 for item in report.get("items", []):
-                    entry = {k: item[k] for k in ["paper_id", "title", "status", "message"] if k in item}
+                    entry = {k: item[k] for k in ["paper_id", "title", "status", "message", "source", "identity_verified"] if k in item}
                     summary["items"].append(entry)
                     pid = item.get("paper_id", "")
                     if item.get("status") not in {"downloaded", "already_exists"} or pid in included:
@@ -373,7 +392,7 @@ def pdf_archive(service, run_id: str) -> Path:
                     raise ValueError("本地PDF文件已缺失或损坏，不生成空ZIP；请重新下载")
                 summary["pdf_files"] = len(included)
                 z.writestr("download_report.json", json.dumps(summary, ensure_ascii=False, indent=2))
-                z.writestr("README.txt", "此包包含已获取的公开论文PDF及逐篇下载结果。未获取的论文见download_report.json。可能包含仓储或预印本版本，请核对论文版本。没有获取的正文不会以摘要或网页替代。")
+                z.writestr("README.txt", "此包包含已获取的论文PDF及逐篇下载结果。未获取的论文见download_report.json。可能包含仓储或预印本版本，请核对论文版本。没有获取的正文不会以摘要或网页替代。")
             os.replace(temporary, archive)
         finally:
             temporary.unlink(missing_ok=True)
@@ -395,7 +414,7 @@ def download_summary(service, run_id: str) -> dict:
     summary = {key: report.get(key, 0) for key in ["run_id", "downloaded", "already_exists", "no_link", "failed"]}
     summary["items"] = []
     for item in report.get("items", []):
-        entry = {key: item[key] for key in ["title", "status", "message"] if key in item}
+        entry = {key: item[key] for key in ["title", "status", "message", "source", "identity_verified"] if key in item}
         if entry.get("status") == "failed" and not entry.get("message"):
             entry["message"] = "；".join(dict.fromkeys(e.get("error", "") for e in item.get("attempt_errors", [])))[:1000]
         summary["items"].append(entry)

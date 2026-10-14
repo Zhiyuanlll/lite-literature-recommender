@@ -5,7 +5,7 @@ set -euo pipefail
 # Relative workspace paths resolve from the caller's current directory.
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_CMD=""
-for candidate in python3 python; do
+for candidate in "$PROJECT_DIR/.venv/bin/python" python3 python; do
   if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
     PYTHON_CMD="$candidate"
     break

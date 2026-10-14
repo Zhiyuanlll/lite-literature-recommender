@@ -22,12 +22,17 @@
       <div><p class="eyebrow">YOUR RESEARCH, IN FOCUS</p><h1>把时间留给值得读的论文</h1><p class="subtitle">选择研究问题，读完后评分，让下一轮更贴近你的方向。</p></div>
       <div class="header-actions"><button id="preview-run" class="secondary" title="真实文献检索，不占本周配额，可包含已推荐论文">检索预览</button><button id="demo-run" class="secondary">离线演示</button><button id="real-run" class="primary">检索并推荐 <span aria-hidden="true">↗</span></button></div>
     </header>
-    <section class="stats" aria-label="项目概览"><div><span>活跃方向</span><strong id="stat-topics">—</strong></div><div><span>每周推荐上限</span><strong id="stat-budget">—</strong><small id="budget-used"></small></div><div><span>推荐轮次</span><strong id="stat-runs">—</strong></div><div><span>有效评分</span><strong id="stat-feedback">—</strong></div></section>
+    <section class="stats" aria-label="项目概览"><div><span>活跃方向</span><strong id="stat-topics">—</strong></div><div><span>每方向每周上限</span><strong id="stat-budget">—</strong><small id="budget-used"></small></div><div><span>推荐轮次</span><strong id="stat-runs">—</strong></div><div><span>有效评分</span><strong id="stat-feedback">—</strong></div></section>
     <div id="job-status" class="job-status hidden" role="status"></div>
     <div id="notice" class="notice hidden" role="status"></div>
     <section class="feed" aria-label="推荐文献">
       <div class="feed-heading"><div><h2>本轮阅读清单 <span id="paper-count"></span></h2><p id="run-meta">先添加方向，或用离线演示了解完整流程。</p></div><div class="feed-controls"><label class="sr-only" for="run-select">选择历史推荐</label><select id="run-select"><option value="">尚无推荐记录</option></select><div class="export-menu"><button id="export-toggle" class="secondary" disabled>导出 ▾</button><div id="export-options" class="dropdown hidden"><button id="export-pdfs" class="text-button">下载论文 PDF（ZIP）</button><a id="export-bib" href="#">BibTeX 引文</a><a id="export-json" href="#">JSON 数据</a><a id="export-markdown" href="#">Markdown 周报</a></div></div></div></div>
       <div id="run-warnings"></div><div id="pdf-report" class="notice hidden" aria-live="polite"></div>
+      <section id="candidate-panel" class="candidate-panel hidden" aria-label="候选筛选明细">
+        <div class="candidate-heading"><div><h3>检索与筛选过程</h3><p>候选抓取量与每周推荐配额独立。缺摘要的论文保留待核验。继续检索沿用此批次的检索配置。</p></div><button id="continue-search" type="button" class="secondary compact">继续检索下一页（预览）</button></div>
+        <div id="candidate-summary"></div>
+        <details id="candidate-details"><summary>查看候选与逐篇筛选原因</summary><div class="candidate-controls"><label>候选分类<select id="candidate-filter"><option value="pending">仅标题，待核验</option><option value="rejected">未入选</option><option value="core">核心候选</option><option value="exploration">探索候选</option><option value="all">全部候选</option></select></label><span id="candidate-count"></span></div><div id="candidates"></div></details>
+      </section>
       <div id="filter-bar" class="filter-bar hidden"><label for="paper-filter">筛选方向</label><select id="paper-filter"><option value="">全部方向</option></select><label class="check-line"><input id="unrated-only" type="checkbox">只看待评分</label></div>
     <div id="papers"><div class="empty-state"><div class="empty-symbol" aria-hidden="true">⌘</div><h3>从一个明确的研究问题开始</h3><p>不同领域都能使用。建立小方向，配置问题、关键词与方法偏好，再开始你的第一轮推荐。</p><button id="empty-add" class="primary">新增研究方向</button><p class="small">离线演示使用合成样例，非真实论文；演示评分与真实推荐隔离。</p></div></div>
     </section>
@@ -35,10 +40,11 @@
   </main>
   <dialog id="topic-dialog">
     <form id="topic-form"><div class="dialog-heading"><div><p class="eyebrow">RESEARCH TOPIC</p><h2 id="topic-dialog-title">新增研究方向</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
-      <p class="form-intro">每个小方向保留独立评分；大方向只用于分组。关键词以英文为主，每行一个词组。</p>
+      <p class="form-intro">每个小方向保留独立评分；大方向只用于分组。用核心概念表达研究对象和问题；方法作为偏好加分。</p>
       <div class="form-grid"><label>方向名称<input name="title" required maxlength="100" placeholder="例如 HEA 位错迁移率"></label><label>方向 ID<input name="id" required pattern="[A-Za-z0-9_\u4e00-\u9fff-]+" maxlength="80" placeholder="HEA_mobility"><small>用于目录和数据关联，建立后保持不变。</small></label><label>大方向分组<input name="group" required maxlength="100" placeholder="例如 HEA、DDD、超材料"></label><label>研究阶段<select name="stage"><option value="survey">综述入门</option><option value="gap">候选 gap</option><option value="focus">聚焦跟踪</option></select></label></div>
       <label>当前研究问题<textarea name="questions" rows="3" required placeholder="每行一个问题；越具体，推荐理由越清楚。"></textarea></label>
-      <div class="form-grid"><label>主题关键词<textarea name="keywords" rows="4" required placeholder="high entropy alloy&#10;dislocation mobility"></textarea></label><label>方法偏好<textarea name="method_terms" rows="4" placeholder="molecular dynamics&#10;Peierls Nabarro"></textarea></label><label>排除词<textarea name="exclude_terms" rows="3" placeholder="不需要的主题，每行一个。"></textarea></label><div class="form-note">不同材料、温度或方法可先写进同一方向。只有研究问题和评分标准明显不同，才需要拆成新方向。</div></div>
+      <label>核心概念与同义表达<textarea name="core_concepts" rows="4" placeholder="high entropy alloy | multi principal element alloy&#10;dislocation mobility | dislocation velocity | mobility of dislocations"></textarea><small>每行一个核心概念，同一行的表达用 | 分隔，命中其一即可。核心推荐需覆盖所有行。请按自己的领域填写；旧方向可先留空兼容运行，再用预览调整。</small></label>
+      <div class="form-grid"><label>主题关键词与反馈标签<textarea name="keywords" rows="4" required placeholder="high entropy alloy&#10;dislocation mobility"></textarea><small>每行一个。保留细分主题与反馈归因，不把所有词都当作必须满足的条件。</small></label><label>方法偏好<textarea name="method_terms" rows="4" placeholder="molecular dynamics&#10;Peierls Nabarro"></textarea><small>每行一个；偏好方法用于加分，不因采用其他方法直接排除。</small></label><label>排除词<textarea name="exclude_terms" rows="3" placeholder="不需要的主题，每行一个。"></textarea></label><div class="form-note">不同材料、温度或方法可先写进同一方向。只有研究问题和评分标准明显不同，才需要拆成新方向。</div></div>
       <label class="check-line"><input name="active" type="checkbox" checked>启用此方向，参与定时推荐</label>
       <p class="form-error hidden" role="alert"></p>
       <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button type="submit" class="primary">保存方向</button></div>
@@ -46,7 +52,12 @@
   </dialog>
   <dialog id="settings-dialog">
     <form id="settings-form"><div class="dialog-heading"><div><p class="eyebrow">WORKSPACE SETTINGS</p><h2>设置与定时运行</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
-      <label>所有方向每周总推荐上限<input name="budget" type="number" min="1" step="1" required><small>每周真实推荐合计不超过上限；合适候选不足时会少推荐。默认10篇，可调高。真实预览和演示不占配额。</small></label>
+      <label>每个方向每周推荐上限<input name="budget" type="number" min="1" step="1" required><small>每个方向独立计算周配额，互不占用。默认每方向10篇，可调高；候选不足时会少推荐。真实预览和演示不占配额。</small></label>
+      <label>每方向每轮候选抓取目标<input name="candidate_limit" type="number" min="30" max="1000" step="1" required><small>默认200，最多1000；这是跨来源抓取目标，去重后可能更少，与本周剩余推荐名额无关。批次中可继续下一页真实预览。</small></label>
+      <fieldset class="semantic-settings"><legend>可选本地语义增强</legend><label class="check-line"><input name="semantic_enabled" type="checkbox">使用 Sentence Transformers 辅助排序</label><label>已下载模型目录<input name="semantic_model_dir" placeholder="_shared/models/multilingual-e5-small"><small>相对个人数据目录的路径，须在 _shared/models 下。留空使用默认位置；计算在本机 CPU 上完成。</small></label><label>语义排序权重<input name="semantic_weight" type="number" min="0" max="0.5" step="0.05"><small>默认0.25。语义相似度用于排序，不是相关概率，也不能替代摘要核验。</small></label><p id="semantic-status" class="form-note"></p><button id="semantic-setup" type="button" class="secondary compact">下载本地语义模型</button><p class="small">首次使用先按文档安装可选依赖。点击下载会连接模型仓库；未安装或加载失败时回退普通规则模式，不自动安装依赖。</p></fieldset>
+      <label class="check-line"><input name="publisher_enabled" type="checkbox">启用 Elsevier 官方接口补摘要及授权 PDF 下载</label>
+      <p class="form-note">导出论文 PDF 时自动打开论文原文及机构访问入口。首次在下载浏览器选择学校并登录；程序运行期间复用登录，关闭程序后清除。机构无法获取时自动按 DOI 查询 Sci-Hub，无需填写链接。页面验证或学校登录需在浏览器完成。</p>
+      <p id="access-status" class="form-note"></p>
       <label class="check-line schedule-check"><input name="schedule_enabled" type="checkbox">启用每周自动推荐</label>
       <div class="form-grid"><label>星期<select name="day"><option value="0">周一</option><option value="1">周二</option><option value="2">周三</option><option value="3">周四</option><option value="4">周五</option><option value="5">周六</option><option value="6">周日</option></select></label><label>时间<input name="time" type="time" required></label></div>
       <label>时区<input name="timezone" required placeholder="Asia/Shanghai"></label>
@@ -55,6 +66,8 @@
       <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button type="submit" class="primary">保存设置</button></div>
     </form>
   </dialog>
+  <input id="pdf-import-file" type="file" accept="application/pdf,.pdf" hidden>
+  <dialog id="abstract-dialog"><form id="abstract-form"><div class="dialog-heading"><h2>核对导入论文的摘要</h2><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><p id="import-paper-title"></p><label>摘要<textarea name="abstract" rows="12" minlength="80" maxlength="12000" required></textarea></label><p>请核对论文归属与摘要内容。确认后用于后续检索评分；历史推荐保持原样。可以关闭窗口，仅保留 PDF。</p><div class="dialog-actions"><button type="button" class="secondary close-dialog">仅保存PDF</button><button type="submit" class="primary">确认摘要</button></div></form></dialog>
   <div id="toast" class="toast hidden" role="status"></div>
 </body>
 </html>

@@ -28,6 +28,8 @@ class LocalServer(ThreadingHTTPServer):
         self.jobs_lock = threading.Lock()
         self.stop_event = threading.Event()
         super().__init__(("127.0.0.1", port), Handler)
+        from .browser_access import BrowserAccess
+        self.pdf_browser = BrowserAccess()
 
     def submit(self, payload: dict) -> str:
         with self.jobs_lock:
@@ -43,15 +45,21 @@ class LocalServer(ThreadingHTTPServer):
             try:
                 if payload.get("action") == "pdf-download":
                     from .download import download_run, pdf_archive, download_summary
-                    report = download_run(self.service, payload.get("run_id"), select_all=True)
+                    def progress(**fields):
+                        with self.jobs_lock:
+                            self.jobs[job_id].update(fields)
+                    report = download_run(self.service, payload.get("run_id"), select_all=True,
+                                          browser=self.pdf_browser, progress=progress)
                     has_pdfs = bool(report["downloaded"] + report["already_exists"])
                     if has_pdfs:
                         pdf_archive(self.service, payload.get("run_id"))
                     result = {"pdf_export": True, "has_pdfs": has_pdfs, "report": download_summary(self.service, payload["run_id"]), "run_id": payload["run_id"], "downloaded": report["downloaded"], "already_exists": report["already_exists"], "no_link": report["no_link"], "failed": report["failed"]}
+                elif payload.get('action') == 'semantic-setup':
+                    result = self.service.setup_semantic(payload.get('model_dir'))
                 else:
                     result = self.service.run(
                         topics=payload.get("topics"), demo=payload.get("demo", False),
-                        run_id=payload.get("run_id"), preview=payload.get("preview", False),
+                        run_id=payload.get("run_id"), preview=payload.get("preview", False), search_page=payload.get("search_page",0), parent_run_id=payload.get("parent_run_id"),
                     )
                 value = {"job_id": job_id, "status": "done", "result": result}
             except Exception as exc:
@@ -77,6 +85,7 @@ class LocalServer(ThreadingHTTPServer):
 
     def server_close(self):
         self.stop_event.set()
+        self.pdf_browser.close()
         return super().server_close()
 
 
@@ -156,6 +165,8 @@ class Handler(BaseHTTPRequestHandler):
                     if job is None:
                         raise KeyError("推荐任务不存在或已过期。")
                     self._json(dict(job))
+            elif path == '/api/candidates':
+                self._json(self.server.service.candidate_detail(arg('id')))
             elif path == "/api/pdf-report":
                 from .download import download_summary
                 self._json(download_summary(self.server.service, arg("id")))
@@ -213,8 +224,10 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "-1"))
             if length < 0:
                 raise ValueError("请求缺少有效长度。")
-            if length > MAX_BODY:
-                self._json({"error": "请求超过 256 KB。"}, 413)
+            path = urlsplit(self.path).path
+            body_limit = 36 * 1024 * 1024 if path == "/api/pdf-import" else MAX_BODY
+            if length > body_limit:
+                self._json({"error": "请求超过接口大小限制。"}, 413)
                 return
             payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):
@@ -237,6 +250,25 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("run_id") is not None and not isinstance(payload["run_id"], str):
                     raise ValueError("run_id 必须是字符串。")
                 self._json({"job_id": self.server.submit(payload), "status": "running"}, 202)
+            elif path == '/api/semantic-setup':
+                model_dir = payload.get('model_dir')
+                if model_dir is not None and not isinstance(model_dir,str):
+                    raise ValueError('模型目录须为字符串')
+                self._json({'job_id':self.server.submit({'action':'semantic-setup','model_dir':model_dir}),'status':'running'},202)
+            elif path == "/api/pdf-import":
+                from .access import import_pdf
+                self._json(import_pdf(self.server.service, payload))
+            elif path == "/api/pdf-abstract":
+                from .access import confirm_abstract
+                self._json(confirm_abstract(self.server.service, payload))
+            elif path == "/api/pdf-control":
+                with self.server.jobs_lock:
+                    job = self.server.jobs.get(payload.get("job_id"))
+                    if not job or job.get("status") != "running" or not job.get("waiting"):
+                        raise ValueError("没有正在等待操作的 PDF 下载")
+                    self.server.pdf_browser.signal(payload.get("action"))
+                    job.update(waiting=False, message="正在继续获取 PDF…")
+                self._json({"ok": True})
             elif path == "/api/pdf-download":
                 run_id = payload.get("run_id")
                 if not isinstance(run_id, str):

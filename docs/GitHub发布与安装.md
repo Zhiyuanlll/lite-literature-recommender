@@ -7,9 +7,9 @@
 从本仓库右侧 **Releases** 进入稳定发行页，下载维护者上传的：
 
 ```text
-Lite_Recommender_v2.0.4.zip
-Lite_Recommender_v2.0.4.zip.sha256
-Lite_Recommender_v2.0.4.MANIFEST.json
+Lite_Recommender_v2.1.0.zip
+Lite_Recommender_v2.1.0.zip.sha256
+Lite_Recommender_v2.1.0.MANIFEST.json
 ```
 
 发行 ZIP 包括程序、网页资源、启动脚本、使用文档、通用方向示例和测试。旁边的 `Source code (zip/tar.gz)` 是 GitHub 自动生成的源码快照，也可运行，但不等于维护者构建并校验过的发行包。
@@ -17,20 +17,20 @@ Lite_Recommender_v2.0.4.MANIFEST.json
 校验 SHA-256。Linux：
 
 ```bash
-sha256sum -c Lite_Recommender_v2.0.4.zip.sha256
+sha256sum -c Lite_Recommender_v2.1.0.zip.sha256
 ```
 
 macOS：
 
 ```bash
-shasum -a 256 Lite_Recommender_v2.0.4.zip
+shasum -a 256 Lite_Recommender_v2.1.0.zip
 ```
 
 Windows PowerShell：
 
 ```powershell
-Get-FileHash .\Lite_Recommender_v2.0.4.zip -Algorithm SHA256
-Get-Content .\Lite_Recommender_v2.0.4.zip.sha256
+Get-FileHash .\Lite_Recommender_v2.1.0.zip -Algorithm SHA256
+Get-Content .\Lite_Recommender_v2.1.0.zip.sha256
 ```
 
 比对完整哈希值。校验值用于完整性核对，不是发布者身份签名；请从可信的仓库发行页取得文件和校验值。
@@ -42,7 +42,7 @@ Get-Content .\Lite_Recommender_v2.0.4.zip.sha256
 
    ```text
    LiteratureTools/
-   ├── Lite_Recommender_v2.0.4/       程序，可以更换版本
+   ├── Lite_Recommender_v2.1.0/       程序，可以更换版本
    └── LiteRecommenderData/           个人数据，升级时继续保留
    ```
 
@@ -85,9 +85,9 @@ Linux 已实际验收。Windows 与 macOS 的说明和脚本未在本发布准�
 
 添加自己的研究方向，先用「离线演示」认识界面，再用「检索预览」调试真实检索词。预览不占周配额，不改变正式推送去重记录，不提供评分。启用方向并点击「检索并推荐」后才能保存正式反馈。
 
-「设置与定时运行」中的每周总推荐上限默认 10 篇，可设置更高的正整数；所有方向共用这个值。低分不会退回已正式推送的名额，筛掉的候选和空批次不占名额。电脑和服务需保持运行，内置周调度才会执行。
+「设置与定时运行」中的每方向每周推荐上限默认 10 篇，可设置更高的正整数；所有方向使用同一上限设置，但独立计数。低分不会退回已正式推送的名额，筛掉的候选和空批次不占名额。电脑和服务需保持运行，内置周调度才会执行。
 
-导出菜单提供 BibTeX、JSON、Markdown 周报和论文 PDF（ZIP）。PDF 下载只尝试结果中的公开直链，部分成功时保留逐篇报告，全部失败时不给空包。详细限制见[PDF 保存](PDF保存.md)。
+导出菜单提供 BibTeX、JSON、Markdown 周报和论文 PDF（ZIP）。PDF 下载尝试结果中的公开直链及使用者启用且获准的 Elsevier 官方接口，部分成功时保留逐篇报告，全部失败时不给空包。详细限制见[PDF 保存](PDF保存.md)。
 
 ## 升级并保留评分
 
@@ -149,4 +149,4 @@ python3 -m lite_recommender --workspace ../acceptance-data init
 
 **升级后历史消失了吗？** 优先核对是否误用了新空数据目录。停止新服务后用原数据路径重新启动，不要删除原目录或初始化到原数据的上层位置。
 
-**可以自动下载所有全文吗？** 不能保证。当前只尝试已有公开 PDF 链接，不登录机构账户，也不会自动通过 DOI 寻找额外全文。
+**可以自动下载所有全文吗？** 不能保证。默认尝试已有公开 PDF 链接；可选 Elsevier 官方接口需要相应授权。学校和 Sci-Hub 入口是浏览器链接，程序不自动继承登录状态或抓取第三方内容。
