@@ -12,7 +12,7 @@ from .access import configuration
 from .storage import Store, FileLock, atomic_json, dump, digest, normalized
 from .ranking import score, select, compute_policy, REASONS
 
-DEFAULT_SETTINGS = {"candidate_limit": 200, "semantic": {"enabled": False, "model_dir": "_shared/models/multilingual-e5-small", "weight": 0.25}, "publisher_access": {"enabled": False}, "budget": 10, "sources": ["crossref", "openalex", "arxiv"], "schedule": {"enabled": False, "day": 0, "time": "09:00", "timezone": "Asia/Shanghai"}}
+DEFAULT_SETTINGS = {"recommendation_counts": None, "candidate_limit": 200, "semantic": {"enabled": False, "model_dir": "_shared/models/multilingual-e5-small", "weight": 0.25}, "publisher_access": {"enabled": False}, "budget": 10, "sources": ["crossref", "openalex", "arxiv"], "schedule": {"enabled": False, "day": 0, "time": "09:00", "timezone": "Asia/Shanghai"}}
 
 
 def week_key(value):
@@ -163,6 +163,11 @@ class Service:
         access.pop("library_url", None)
         access.pop("external_doi_base", None)
         settings["publisher_access"] = access
+        counts = settings.get('recommendation_counts')
+        if counts is not None:
+            if not isinstance(counts,dict) or any(isinstance(counts.get(k),bool) or not isinstance(counts.get(k),int) or not 0 <= counts[k] <= 100 for k in ('core','related')) or counts['core']+counts['related'] < 1:
+                raise ValueError('核心和相关候选数量须为0–100整数，合计至少1篇')
+            settings['recommendation_counts'] = {k:counts[k] for k in ('core','related')}
         limit = settings.get('candidate_limit',200)
         if isinstance(limit,bool) or not re.fullmatch(r'[0-9]+',str(limit)) or not 30 <= int(limit) <= 1000:
             raise ValueError('每方向候选抓取量须为30–1000整数')
@@ -207,6 +212,12 @@ class Service:
         return settings
 
     def feedback(self, payload, source_key=None):
+        if payload.get('run_id'):
+            batch=self.store.run(identifier(payload['run_id']))
+            if not batch:raise ValueError('反馈批次不存在')
+            if batch['mode']=='preview':raise ValueError('下周预览不可评分，请使用可评分的推荐清单')
+            if not any(p['topic_id']==payload.get('topic_id') and ((self.store.paper(p['paper_id']) or p)['paper_id']==(self.store.paper(payload.get('paper_id')) or {}).get('paper_id')) for p in self.store.run_papers(batch['run_id'])):
+                raise ValueError('论文不在该推荐清单中')
         p = self._topic(payload.get("topic_id"))
         version = str(payload.get("profile_version") or p["profile_version"])
         if version != str(p["profile_version"]):
@@ -252,16 +263,30 @@ class Service:
         week = week_key(self.now())
         stats["used_this_week"] = self.store.used_budget(week)
         stats["used_by_topic"] = {p["topic_id"]: self.store.used_budget(week, p["topic_id"]) for p in self.store.topics()}
+        weekly_counts=self.store.weekly_counts(week)
+        if weekly_counts is not None:
+            stats['used_by_topic']={p['topic_id']:weekly_counts.get(p['topic_id'],0) for p in self.store.topics()}
+            stats['used_this_week']=sum(weekly_counts.values())
         from .concepts import normalize_concepts
         topics = [{**p, 'core_concepts':normalize_concepts(p), 'core_concepts_inferred':not bool(p.get('core_concepts'))} for p in self.store.topics()]
-        return {"topics": topics, "settings": self.settings, "runs": self.store.runs(), "stats": stats, "version": __version__, "workspace": str(self.workspace), "access_status": configuration(), "semantic_status": self.semantic_status()}
+        return {"topics": topics, "settings": self.settings, "runs": self.store.display_runs(), "iteration_count": self.store.iteration_count(), "current_feedback_run_id":(self.store.latest_feedback_run() or {}).get("run_id"), "stats": stats, "version": __version__, "workspace": str(self.workspace), "access_status": configuration(), "semantic_status": self.semantic_status()}
 
-    def run(self, topics=None, demo=False, run_id=None, preview=False, search_page=0, parent_run_id=None):
+    def run(self, topics=None, demo=False, run_id=None, preview=False, search_page=0, parent_run_id=None, iteration=False, action=None, base_run_id=None):
         from . import sources
         from .demo import candidates
         from .semantic import rerank
         now = self.now()
         week = week_key(now)
+        if action not in (None,'weekly','preview_next','reselect','accelerate'):
+            raise ValueError('推荐操作无效')
+        if action and demo:raise ValueError('每周推荐操作不能使用演示数据')
+        if action:
+            preview=action=='preview_next';iteration=action=='accelerate'
+            if parent_run_id:raise ValueError('新推荐操作由程序自动扩展检索，不使用手动分页')
+        if not isinstance(iteration, bool):
+            raise ValueError("iteration 必须是布尔值")
+        if iteration and (demo or preview):
+            raise ValueError("测试迭代不能同时启用演示或预览")
         if demo and preview:
             raise ValueError("离线演示和真实预览不能同时启用")
         if isinstance(search_page, bool) or not isinstance(search_page, int) or not 0 <= search_page <= 100:
@@ -271,9 +296,9 @@ class Service:
             raise ValueError('上一批次尚未完成，不能继续分页')
         if parent_run_id and (not parent or not preview or demo or parent.get('mode') == 'demo' or 'candidate_limit' not in parent):
             raise ValueError("继续检索须从新版真实批次启动预览")
-        if parent and search_page != parent.get('search_page', 0) + 1:
+        if parent and search_page != parent.get('next_search_page', parent.get('search_page', 0) + 1):
             raise ValueError("继续检索的页码须为上一批次下一页")
-        mode = "demo" if demo else ("preview" if preview else "real")
+        mode = "demo" if demo else ("preview" if preview else ("iteration" if iteration else ("reselect" if action=="reselect" else "real")))
         rid = identifier(run_id or week + "-" + mode)
         with FileLock(self.workspace / "_shared/run.lock"):
             old = self.store.run(rid)
@@ -281,20 +306,41 @@ class Service:
                 raise ValueError("批次标识已被另一运行模式使用")
             if old and old["status"] in ("complete", "partial"):
                 return {**old, "replayed": True}
-            profiles = parent['profiles'] if parent else [p for p in self.store.topics() if (not topics or p["topic_id"] in topics) and (demo or preview or p.get("active"))]
+            profiles = parent['profiles'] if parent else [p for p in self.store.topics() if (not topics or p["topic_id"] in topics) and (demo or (preview and not action) or p.get("active"))]
             profiles.sort(key=lambda p: (-p.get("priority", 1), p["topic_id"]))
             if not profiles:
                 raise ValueError("请先新增并启用一个研究方向。演示可使用未启用的示例方向。")
             for p in profiles:
                 if not p["questions"] or not p["keywords"]:
                     raise ValueError("请先填写研究问题和英文关键词：" + p["topic_id"])
+            if action=='accelerate':
+                base=self.store.run(identifier(base_run_id)) if base_run_id else self.store.latest_feedback_run()
+                if not base or base['mode'] in ('preview','demo') or base['status'] not in ('complete','partial'):
+                    raise ValueError('请先生成本周推荐并完成评分，再加速迭代')
+                base_papers=[v for v in self.store.run_papers(base['run_id']) if v['topic_id'] in {p['topic_id'] for p in profiles}]
+                if not base_papers:raise ValueError('当前清单没有所选方向，请先重选本周推荐')
+                missing=[]
+                for item in base_papers:
+                    p=next(p for p in profiles if p['topic_id']==item['topic_id'])
+                    if str(item['profile_version'])!=str(p['profile_version']):raise ValueError('方向配置已变更，请先重选本周推荐')
+                    pid=(self.store.paper(item['paper_id']) or item)['paper_id']
+                    feedback=self.store.latest_feedback(item['topic_id'],item['profile_version']).get(pid,{})
+                    if feedback.get('rating') not in (1,2,3,4,5):missing.append(item)
+                if missing:raise ValueError(f'还有{len(missing)}篇未评分，请保存全部反馈后再加速迭代')
+                with self.store.connect() as conn:
+                    prior=[json.loads(r[0]) for r in conn.execute("SELECT result FROM runs WHERE mode='iteration' AND status IN ('complete','partial')")]
+                if any(r.get('action')=='accelerate' and r.get('base_run_id')==base['run_id'] for r in prior):
+                    raise ValueError('该清单已完成加速迭代，请评分新清单后继续')
+                base_run_id=base['run_id']
             limit = (parent or old or {}).get('candidate_limit', self.settings['candidate_limit'])
             active_sources = (parent or old or {}).get('sources', self.settings['sources'])
-            topic_budgets = {p["topic_id"]: self.settings["budget"] if demo or preview else max(0, self.settings["budget"] - self.store.used_budget(week, p["topic_id"])) for p in profiles}
+            counts = (parent or old or {}).get('recommendation_counts', self.settings.get('recommendation_counts'))
+            if action:counts=counts or {'core':5,'related':15}
+            topic_budgets = {p["topic_id"]: (counts["core"]+counts["related"]) if counts else self.settings["budget"] if demo or preview or iteration else max(0, self.settings["budget"] - self.store.used_budget(week, p["topic_id"])) for p in profiles}
             remaining = sum(topic_budgets.values())
             out = self.workspace / "_shared/runs" / rid
             out.mkdir(parents=True, exist_ok=True)
-            result = {"run_id": rid, "id": rid, "mode": mode, "status": "running", "created_at": now.isoformat(), "last_attempt_at": now.isoformat(), "attempts": (old or {}).get("attempts", 0) + 1, "count": 0, "topics": [p["topic_id"] for p in profiles], "profiles": profiles, "warnings": [], "report_path": str(out / "report.md"), "candidate_count": 0, "budget": remaining, "budget_scope": "per_topic", "topic_budgets": topic_budgets, 'candidate_limit': limit, 'sources': active_sources, 'search_page': search_page, 'parent_run_id': parent_run_id, 'diagnostics': {}, 'scoring_version': '2.1'}
+            result = {"run_id": rid, "id": rid, "mode": mode, "status": "running", "created_at": now.isoformat(), "last_attempt_at": now.isoformat(), "attempts": (old or {}).get("attempts", 0) + 1, "count": 0, "topics": [p["topic_id"] for p in profiles], "profiles": profiles, "warnings": [], "report_path": str(out / "report.md"), "candidate_count": 0, "budget": remaining, "budget_scope": "per_topic", "topic_budgets": topic_budgets, 'candidate_limit': None if counts else limit, 'sources': active_sources, 'search_page': search_page, 'parent_run_id': parent_run_id, 'diagnostics': {}, 'scoring_version': '2.1', 'recommendation_counts': counts,'action':action,'base_run_id':base_run_id,'week':week,'target_week':week_key(now+dt.timedelta(days=7)) if action=='preview_next' else week}
             self.store.save_run(result, week)
             try:
                 warnings, ranked, snapshots = result["warnings"], {}, []
@@ -304,7 +350,8 @@ class Service:
                     feedback = self.store.latest_feedback(topicid, p["profile_version"])
                     feedback = {pid: value for pid, value in feedback.items() if bool((self.store.paper(pid) or {}).get("is_demo")) == demo}
                     policy_key = str(p["profile_version"]) + (":demo" if demo else "")
-                    policy = compute_policy(p, feedback, self.store.get_policy(topicid, policy_key))
+                    previous_policy=self.store.get_policy(topicid,policy_key)
+                    policy = previous_policy if action=='reselect' and previous_policy.get('digest') else compute_policy(p, feedback, previous_policy)
                     frozen_path = out / (topicid + ".snapshot.json")
                     snapshot = {'profile': p, 'feedback': feedback, 'policy': policy}
                     if old and frozen_path.exists():
@@ -330,14 +377,20 @@ class Service:
                     snapshot.update(request_profile=query_profile, search_keywords=query_profile['keywords'], search_methods=query_profile['method_terms'])
                     atomic_json(frozen_path, snapshot)
                     request_profile = {**query_profile, '_cache_dir': str(self.workspace / '_shared/cache'), '_run_date': now.date().isoformat(), '_search_page': search_page, '_search_diagnostics': {}}
-                    papers, errors = (candidates(request_profile, 36), []) if demo else sources.search(request_profile, limit=limit, sources=active_sources)
+                    exposures=self.store.exposure_papers(topicid) if action else []
+                    request_profile.update(_exclude_papers=exposures,_refresh_metadata=action=='reselect')
+                    if counts and not demo:
+                        from .discovery import search as discover
+                        papers, errors = discover(request_profile,counts,policy,now.date(),active_sources,self.workspace/'_shared/homepage_cache')
+                    else:
+                        papers, errors = (candidates(request_profile, 36), []) if demo else sources.search(request_profile, limit=limit, sources=active_sources)
                     if not demo:
                         from .access import enrich
                         papers, enrichment_errors = enrich(papers, self.settings['publisher_access']['enabled'])
                         errors.extend(enrichment_errors)
                     warnings.extend(topicid + ': ' + e for e in errors)
                     raw_ids = [self.store.upsert_paper(paper)['paper_id'] for paper in papers]
-                    historical = self.store.seen(topicid, 'real') if not demo else set()
+                    historical = {p['paper_id'] for p in exposures} if action else self.store.seen(topicid, 'real') if not demo else set()
                     values = {}
                     for pid in raw_ids:
                         merged = self.store.paper(pid)
@@ -350,29 +403,49 @@ class Service:
                         semantic_info = {'enabled': False, 'mode': 'demo'}
                     for item in scored:
                         item['previously_recommended'] = item['paper_id'] in historical
-                        item['seen'] = bool(not preview and not demo and item['previously_recommended'])
+                        item['seen'] = bool(item['previously_recommended'] and (action or (not preview and not demo and not iteration)))
                         if item['seen']:
                             item.update(eligible=False, exploration_eligible=False)
                             item['rejection_reasons'] = list(item.get('rejection_reasons', [])) + ['already_recommended']
                     available = [p for p in scored if not p['seen']]
                     ranked[topicid] = available
-                    counts = {name: sum(p.get('classification') == name for p in available) for name in ('core', 'exploration', 'pending', 'rejected')}
+                    category_counts = {name: sum(p.get('classification') == name for p in available) for name in ('core', 'exploration', 'pending', 'rejected')}
                     source_info = request_profile['_search_diagnostics']
-                    diagnostics = {**source_info, 'raw_count': source_info.get('raw_count', len(papers)), 'deduped_count': len(scored), 'seen_count': sum(p['seen'] for p in scored), 'previously_recommended_count': sum(p['previously_recommended'] for p in scored), **{name+'_count':value for name,value in counts.items()}, 'selected_count': 0, 'budget_remaining': topic_remaining, 'semantic': semantic_info}
+                    diagnostics = {**source_info, 'raw_count': source_info.get('raw_count', len(papers)), 'deduped_count': len(scored), 'seen_count': sum(p['seen'] for p in scored), 'previously_recommended_count': sum(p['previously_recommended'] for p in scored), **{name+'_count':value for name,value in category_counts.items()}, 'selected_count': 0, 'budget_remaining': topic_remaining, 'semantic': semantic_info}
                     result['diagnostics'][topicid] = diagnostics
                     result['candidate_count'] += len(papers)
                     atomic_json(out / (topicid + '.candidates.json'), scored)
-                chosen = [paper for topicid, values in ranked.items() for paper in select({topicid: values}, topic_budgets[topicid])]
+                if counts:
+                    from .ranking import select_targets
+                    chosen = [paper for values in ranked.values() for paper in select_targets(values,counts['core'],counts['related'])]
+                else:
+                    chosen = [paper for topicid, values in ranked.items() for paper in select({topicid: values}, topic_budgets[topicid])]
                 for topicid in ranked:
                     result['diagnostics'][topicid]['selected_count'] = sum(p['topic_id'] == topicid for p in chosen)
+                    if counts:
+                        result['diagnostics'][topicid].update(selected_core_count=sum(p['topic_id']==topicid and p['recommendation_group']=='core' for p in chosen),selected_related_count=sum(p['topic_id']==topicid and p['recommendation_group']=='related' for p in chosen),selected_title_only_count=sum(p['topic_id']==topicid and not p.get('abstract') for p in chosen))
+                for topicid in ranked:
+                    d = result['diagnostics'][topicid]
+                    if d['selected_count'] < topic_budgets[topicid] and topic_budgets[topicid]:
+                        if counts:
+                            selected = [p for p in chosen if p['topic_id']==topicid]
+                            ncore = sum(p['recommendation_group']=='core' for p in selected)
+                            nrelated = len(selected)-ncore
+                            warnings.append(f"{topicid}：核心目标{counts['core']}篇、相关目标{counts['related']}篇；实际核心{ncore}篇、相关{nrelated}篇。已扩大检索；标题相关但无摘要条目也可推送，未以无摘要直接剔除。可继续检索补充。")
+                        else:
+                            warnings.append(f"{topicid}：上限{topic_budgets[topicid]}篇；本轮核心候选{d['core_count']}篇、探索候选{d['exploration_count']}篇（每轮最多展示1篇探索），待核验{d['pending_count']}篇、筛除{d['rejected_count']}篇、已推荐去重{d['seen_count']}篇；实际展示{d['selected_count']}篇。上限不保证篇数，可查看候选或继续检索。")
+                if iteration:
+                    warnings.append('评分后加速迭代：使用已保存评分更新偏好，提供未展示过的新清单；新论文可评分并参与后续每周推荐。' if action else '手动测试迭代：使用最新评分重新排序，可重复出现已推荐论文，不扣正式周配额；只更新当前结果，不新增每周历史。')
                 if remaining == 0:
                     warnings.append('所选方向本周正式推荐配额均已用完；没有再次检索或增加文章。')
                 elif not chosen:
                     warnings.append('本轮没有可正式推荐的文献；请查看候选与排除原因，缺少摘要的相关条目保留在待核验区。')
+                if counts:
+                    result['next_search_page'] = max((d.get('next_search_page',search_page+1) for d in result['diagnostics'].values()),default=search_page+1)
                 result['count'] = len(chosen)
                 result['status'] = 'failed' if remaining and result['candidate_count'] == 0 and warnings else ('partial' if warnings else 'complete')
                 if preview:
-                    warnings.append('真实检索预览：不占周配额，不写入正式推送去重记录；可再次出现已推荐论文。仅供调试检索，不提交评分。')
+                    warnings.append('下周预览：按最新已保存反馈提供未展示过的文献，不可评分；使用当前已发表文献，不模拟未来发表。' if action else '真实检索预览：不占周配额，不写入正式推送去重记录；可再次出现已推荐论文。仅供调试检索，不提交评分。')
                 result['strategy_changes'] = [{'topic_id':s['profile']['topic_id'], 'rated_count':s['policy'].get('rated_count',0), 'tag_adjustments':s['policy'].get('adjustments',{}), 'search_keywords':s.get('search_keywords',s['profile']['keywords']), 'search_methods':s.get('search_methods',s['profile']['method_terms'])} for s in snapshots]
                 result['profiles'] = [s['profile'] for s in snapshots]
                 self.store.save_run(result, week, chosen)
@@ -459,7 +532,7 @@ class Service:
             return "\n\n".join(entries) + "\n"
         if format != "markdown":
             raise ValueError("导出格式须为bib、json或markdown")
-        lines = ["# 每周文献推荐 " + result["run_id"], "", "模式：" + ("离线演示（全部为合成资料，不能引用）" if result["mode"] == "demo" else "真实学术来源"), "数量：" + str(result["count"]) + "；状态：" + result["status"], "", "## 策略与依据", "", "本报告采用可解释词项匹配与反馈修正。依据为来源摘要；未进行全文精读或新颖性认证。"]
+        lines = ["# 每周文献推荐 " + result["run_id"], "", "模式：" + ("离线演示（全部为合成资料，不能引用）" if result["mode"] == "demo" else "真实学术来源"), "数量：" + str(result["count"]) + "；状态：" + result["status"], "", "## 策略与依据", "", "本报告采用词项匹配、本地语义排序与反馈修正。缺摘要条目依据限于标题和元数据；未进行全文精读或新颖性认证。"]
         for s in result.get("strategy_changes", []):
             lines.append("- " + s["topic_id"] + "：有效评分 " + str(s["rated_count"]) + "；标签修正 " + json.dumps({k: v for k, v in s["tag_adjustments"].items() if v}, ensure_ascii=False))
             if s.get("search_keywords"):
@@ -514,6 +587,9 @@ class Service:
         # Do not backfill the previous week on first activation. Catch up only this week's occurrence.
         if week_key(target) != week_key(now):
             return
+        with self.store.connect() as conn:
+            rows=conn.execute("SELECT result FROM runs WHERE week=? AND mode='reselect' AND status IN ('complete','partial')",(week_key(target),))
+            if any(json.loads(r[0]).get('action')=='reselect' for r in rows):return
         rid = week_key(target) + "-real"
         previous = self.store.run(rid)
         if previous:
@@ -525,7 +601,7 @@ class Service:
                 elapsed = 0
             if elapsed < 900:
                 return
-        self.run(run_id=rid)
+        self.run(run_id=rid,action="weekly")
 
     def import_legacy(self, path, topic_id):
         from .migration import import_legacy

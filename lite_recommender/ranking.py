@@ -158,3 +158,22 @@ def select(ranked_by_topic, budget):
             if queue and len(result) < budget:
                 result.append(queue.pop(0))
     return result
+
+
+def related_eligible(paper):
+    if paper.get('seen') or set(paper.get('rejection_reasons',[])) & {'excluded_term','future_date'}:
+        return False
+    if paper.get('eligible') or paper.get('exploration_eligible'):
+        return True
+    groups=paper.get('core_concepts',[])
+    hits=paper.get('matched_concepts',[])
+    return paper.get('classification')=='pending' and bool(groups) and bool(hits) and hits[0]['index']==0 and (not paper.get('missing_concepts') or (len(hits)/len(groups)>=.5 and paper.get('adjacent_core')))
+
+
+def select_targets(papers,core_count=5,related_count=15):
+    core=sorted([p for p in papers if p.get('eligible') and not p.get('seen')],key=lambda p:p['score'],reverse=True)[:core_count]
+    ids={p['paper_id'] for p in core}
+    related=[p for p in papers if p['paper_id'] not in ids and related_eligible(p)]
+    # Strong title matches remain visible even when public sources lack abstracts.
+    related.sort(key=lambda p:(not bool(p.get('missing_concepts')),p['score']),reverse=True)
+    return [{**p,'recommendation_group':'core'} for p in core]+[{**p,'recommendation_group':'related','title_only':not bool(p.get('abstract'))} for p in related[:related_count]]

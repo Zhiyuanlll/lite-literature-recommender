@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lite-literature-recommender"
-version = "2.1.1"
+version = "2.2.0"
 description = "Local, explainable multi-topic literature recommendation and feedback"
 readme = "README.md"
 requires-python = ">=3.10"

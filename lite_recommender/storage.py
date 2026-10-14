@@ -248,6 +248,52 @@ class Store:
         with self.connect() as conn:
             return [json.loads(r[0]) for r in conn.execute("SELECT result FROM runs ORDER BY created_at DESC LIMIT 80")]
 
+    @staticmethod
+    def is_manual_run(run):
+        return run.get("mode") in ("iteration", "preview", "demo") or str(run.get("run_id", "")).startswith("manual-") or str(run.get("run_id", "")).startswith("verified-preview-")
+
+    def latest_feedback_run(self):
+        with self.connect() as conn:
+            rows=conn.execute("SELECT result FROM runs WHERE mode IN ('real','iteration','reselect') AND status IN ('complete','partial') ORDER BY created_at DESC")
+            return next((json.loads(r[0]) for r in rows if json.loads(r[0]).get('count',0)>0),None)
+
+    def exposure_papers(self, topic_id):
+        with self.connect() as conn:
+            ids=[r[0] for r in conn.execute("SELECT DISTINCT paper_id FROM recommendations JOIN runs ON runs.id=run_id WHERE topic_id=? AND runs.mode!='demo' AND runs.status IN ('complete','partial')",(topic_id,))]
+        return [p for p in (self.paper(pid) for pid in ids) if p and not p.get('is_demo')]
+
+    def display_runs(self):
+        with self.connect() as conn:
+            values=[{**json.loads(r['result']),'week':r['week']} for r in conn.execute("SELECT result,week FROM runs ORDER BY created_at DESC")]
+        if not any(r.get('action') for r in values):
+            current=next((r for r in values if self.is_manual_run(r)),None)
+            history=[r for r in values if not self.is_manual_run(r)][:80]
+            return ([{**current,'current_manual':True}] if current else [])+history
+        current=next((r for r in values if r.get('mode') in ('real','reselect','iteration') and r.get('count',0)>0 and r.get('status') in ('complete','partial')),None)
+        preview=next((r for r in values if r.get('action')=='preview_next'),None)
+        history={}
+        for r in values:
+            if r.get('action') in ('weekly','reselect') and r['week'] not in history:history[r['week']]=r
+            elif r.get('mode')=='real' and not self.is_manual_run(r) and r['week'] not in history:history[r['week']]=r
+        shown=([{**current,'current_feedback':True}] if current else [])+([{**preview,'current_preview':True}] if preview else [])+list(history.values())[:80]
+        unique={r['run_id']:r for r in shown}
+        return sorted(unique.values(),key=lambda r:r['created_at'],reverse=True)
+
+    def weekly_counts(self, week):
+        with self.connect() as conn:
+            rows=list(conn.execute("SELECT result FROM runs WHERE week=? AND mode IN ('real','reselect') AND status IN ('complete','partial') ORDER BY created_at DESC",(week,)))
+        if not any(json.loads(r[0]).get('action') in ('weekly','reselect') for r in rows):return None
+        counts={}
+        for row in rows:
+            run=json.loads(row[0])
+            for topic in run.get('topics',[]):
+                if topic not in counts:counts[topic]=sum(p['topic_id']==topic for p in self.run_papers(run['run_id']))
+        return counts
+
+    def iteration_count(self):
+        with self.connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM runs WHERE mode='iteration' AND status IN ('complete','partial')").fetchone()[0]
+
     def seen(self, topic_id, mode):
         with self.connect() as conn:
             redirects = {r[0]: r[1] for r in conn.execute("SELECT old_id,new_id FROM redirects")}

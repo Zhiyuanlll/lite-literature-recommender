@@ -9,7 +9,7 @@ from . import __version__
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Lite Recommender 2.1 — 通用本地文献推荐与评分反馈")
+    parser = argparse.ArgumentParser(description="Lite Recommender 2.2 — 通用本地文献推荐与评分反馈")
     parser.add_argument("--workspace", default="workspace", help="独立数据目录；默认当前目录/workspace")
     parser.add_argument("--version", action="version", version="Lite Recommender " + __version__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -20,6 +20,8 @@ def main(argv=None):
     serve.add_argument("--open", action="store_true")
     run = sub.add_parser("run", help="运行推荐；同批次重复执行复用已有结果")
     run.add_argument("--topic", action="append")
+    run.add_argument("--action", choices=("weekly","preview_next","reselect","accelerate"), help="每周推荐、下周预览、重选本周推荐或评分后加速迭代")
+    run.add_argument("--base-run-id", help="加速迭代所依据的已完成评分清单")
     run.add_argument("--demo", action="store_true", help="仅使用标记的合成候选，不联网")
     run.add_argument("--preview", action="store_true", help="真实检索预览，不占周配额、不改变正式推送去重记录")
     run.add_argument("--run-id")
@@ -64,7 +66,7 @@ def main(argv=None):
                 service.seed_examples()
             result = {"workspace": str(service.workspace), "topics": len(service.store.topics()), "scheduler_enabled": service.settings["schedule"]["enabled"]}
         elif args.command == "run":
-            result = service.run(args.topic,args.demo,args.run_id,preview=args.preview,search_page=args.search_page,parent_run_id=args.parent_run_id)
+            result = service.run(args.topic,args.demo,args.run_id,preview=args.preview,search_page=args.search_page,parent_run_id=args.parent_run_id,action=args.action,base_run_id=args.base_run_id)
         elif args.command == 'semantic-setup':
             result = service.setup_semantic(args.model_dir)
         elif args.command == "feedback":

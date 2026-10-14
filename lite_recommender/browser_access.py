@@ -247,7 +247,7 @@ class BrowserAccess:
                             continue
                         text = control.inner_text(timeout=1000).strip()
                         href = control.get_attribute("href") or ""
-                        institution = re.search(r"sign in (?:via|through).*institution|access through.*(?:institution|organization)|institutional (?:login|access)|通过.*机构|机构登录", text, re.I)
+                        institution = re.search(r"(?:sign in|log in|login) (?:via|through).*institution|access through.*(?:institution|organization)|institutional (?:login|access)|通过.*机构|机构登录", text, re.I)
                         from urllib.parse import urlsplit
                         host = urlsplit(page.url).hostname or ""
                         if source == "institution_browser" and (host == "sciencedirect.com" or host.endswith(".sciencedirect.com")):

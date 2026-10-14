@@ -1,3 +1,13 @@
+# Changelog
+
+## 2.2.0
+
+- Three explicit weekly workflows: read-only next-week preview, reselect current week, and rated-batch acceleration. All workflows avoid previously displayed papers, including previews.
+- Enforce completed saved ratings before acceleration and refuse preview feedback. Reselect preserves active feedback policy and replaces the week's history slot without implicit negative ratings.
+- Per-topic core/related targets default to5+15. Expand retrieval automatically, retain title-only relevant papers, and verify public-homepage abstract metadata. Remove manual pagination from the UI.
+- Save all edited feedback, including drafts hidden by filters; preserve failed saves for retry and skip unchanged papers.
+- Center the reading workspace at150% scale; freeze/archive the PDF workflow and remove its frontend controls. Preserve optional local semantic ranking, personal data and old CLI compatibility.
+
 # v2.1.1 — Cross-platform compatibility
 
 - Recognize PDF keyword headings when text extraction collapses line breaks.

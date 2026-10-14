@@ -59,7 +59,8 @@ class LocalServer(ThreadingHTTPServer):
                 else:
                     result = self.service.run(
                         topics=payload.get("topics"), demo=payload.get("demo", False),
-                        run_id=payload.get("run_id"), preview=payload.get("preview", False), search_page=payload.get("search_page",0), parent_run_id=payload.get("parent_run_id"),
+                        run_id=payload.get("run_id"), preview=payload.get("preview", False), search_page=payload.get("search_page",0), parent_run_id=payload.get("parent_run_id"), iteration=not payload.get("demo", False) and not payload.get("preview", False) and not payload.get("action"),
+                        **({"action":payload["action"],"base_run_id":payload.get("base_run_id")} if payload.get("action") else {}),
                     )
                 value = {"job_id": job_id, "status": "done", "result": result}
             except Exception as exc:
@@ -244,6 +245,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("demo 必须是布尔值。")
                 if "preview" in payload and not isinstance(payload["preview"], bool):
                     raise ValueError("preview 必须是布尔值。")
+                if payload.get("action") not in (None,"weekly","preview_next","reselect","accelerate"):
+                    raise ValueError("推荐操作无效")
                 topics = payload.get("topics")
                 if topics is not None and (not isinstance(topics, list) or any(not isinstance(t, str) for t in topics)):
                     raise ValueError("topics 必须是方向 ID 数组。")

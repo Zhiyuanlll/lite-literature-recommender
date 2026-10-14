@@ -177,7 +177,7 @@ class WebTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertEqual(job["status"], "done")
         self.assertEqual(job["result"]["run_id"], "R1")
-        self.assertEqual(self.service.run_calls[0], {"topics": ["test"], "demo": True, "run_id": None, "preview": False, "search_page":0, "parent_run_id":None})
+        self.assertEqual(self.service.run_calls[0], {"topics": ["test"], "demo": True, "run_id": None, "preview": False, "search_page":0, "parent_run_id":None, "iteration":False})
 
     def test_pdf_download_job_and_zip_delivery(self):
         report = {"downloaded": 1, "already_exists": 0, "no_link": 2, "failed": 0}

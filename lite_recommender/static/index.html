@@ -20,16 +20,16 @@
   <main>
     <header class="page-header">
       <div><p class="eyebrow">YOUR RESEARCH, IN FOCUS</p><h1>把时间留给值得读的论文</h1><p class="subtitle">选择研究问题，读完后评分，让下一轮更贴近你的方向。</p></div>
-      <div class="header-actions"><button id="preview-run" class="secondary" title="真实文献检索，不占本周配额，可包含已推荐论文">检索预览</button><button id="demo-run" class="secondary">离线演示</button><button id="real-run" class="primary">检索并推荐 <span aria-hidden="true">↗</span></button></div>
+      <div class="header-actions"><button id="preview-run" class="secondary" title="基于最新已保存反馈提供新文献，不可评分">下周预览</button><button id="reselect-run" class="secondary" title="对当前结果不满意时换一批；不自动产生负反馈">重选本周推荐</button><button id="real-run" class="primary" title="完成当前清单全部评分后更新偏好，生成可继续评分的新清单">评分后加速迭代 ↗</button></div>
     </header>
-    <section class="stats" aria-label="项目概览"><div><span>活跃方向</span><strong id="stat-topics">—</strong></div><div><span>每方向每周上限</span><strong id="stat-budget">—</strong><small id="budget-used"></small></div><div><span>推荐轮次</span><strong id="stat-runs">—</strong></div><div><span>有效评分</span><strong id="stat-feedback">—</strong></div></section>
+    <section class="stats" aria-label="项目概览"><div><span>活跃方向</span><strong id="stat-topics">—</strong></div><div><span>本周核心＋相关目标</span><strong id="stat-budget">—</strong><small id="budget-used"></small></div><div><span>迭代轮次</span><strong id="stat-runs">—</strong></div><div><span>有效评分</span><strong id="stat-feedback">—</strong></div></section>
     <div id="job-status" class="job-status hidden" role="status"></div>
     <div id="notice" class="notice hidden" role="status"></div>
     <section class="feed" aria-label="推荐文献">
-      <div class="feed-heading"><div><h2>本轮阅读清单 <span id="paper-count"></span></h2><p id="run-meta">先添加方向，或用离线演示了解完整流程。</p></div><div class="feed-controls"><label class="sr-only" for="run-select">选择历史推荐</label><select id="run-select"><option value="">尚无推荐记录</option></select><div class="export-menu"><button id="export-toggle" class="secondary" disabled>导出 ▾</button><div id="export-options" class="dropdown hidden"><button id="export-pdfs" class="text-button">下载论文 PDF（ZIP）</button><a id="export-bib" href="#">BibTeX 引文</a><a id="export-json" href="#">JSON 数据</a><a id="export-markdown" href="#">Markdown 周报</a></div></div></div></div>
-      <div id="run-warnings"></div><div id="pdf-report" class="notice hidden" aria-live="polite"></div>
+      <div class="feed-heading"><div><h2>本轮阅读清单 <span id="paper-count"></span></h2><p id="run-meta">先添加方向，或用离线演示了解完整流程。</p></div><div class="feed-controls"><label class="sr-only" for="run-select">选择历史推荐</label><select id="run-select"><option value="">尚无推荐记录</option></select><button id="save-all-feedback" class="primary compact" disabled>保存全部反馈</button><div class="export-menu"><button id="export-toggle" class="secondary" disabled>导出 ▾</button><div id="export-options" class="dropdown hidden"><a id="export-bib" href="#">BibTeX 引文</a><a id="export-json" href="#">JSON 数据</a><a id="export-markdown" href="#">Markdown 周报</a></div></div></div></div>
+      <div id="run-warnings"></div>
       <section id="candidate-panel" class="candidate-panel hidden" aria-label="候选筛选明细">
-        <div class="candidate-heading"><div><h3>检索与筛选过程</h3><p>候选抓取量与每周推荐配额独立。缺摘要的论文保留待核验。继续检索沿用此批次的检索配置。</p></div><button id="continue-search" type="button" class="secondary compact">继续检索下一页（预览）</button></div>
+        <div class="candidate-heading"><div><h3>检索与筛选过程</h3><p>程序自动扩展来源、同义词与检索范围，展示所有检索候选及筛选原因；仅标题相关论文也可推送。</p></div></div>
         <div id="candidate-summary"></div>
         <details id="candidate-details"><summary>查看候选与逐篇筛选原因</summary><div class="candidate-controls"><label>候选分类<select id="candidate-filter"><option value="pending">仅标题，待核验</option><option value="rejected">未入选</option><option value="core">核心候选</option><option value="exploration">探索候选</option><option value="all">全部候选</option></select></label><span id="candidate-count"></span></div><div id="candidates"></div></details>
       </section>
@@ -52,11 +52,11 @@
   </dialog>
   <dialog id="settings-dialog">
     <form id="settings-form"><div class="dialog-heading"><div><p class="eyebrow">WORKSPACE SETTINGS</p><h2>设置与定时运行</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
-      <label>每个方向每周推荐上限<input name="budget" type="number" min="1" step="1" required><small>每个方向独立计算周配额，互不占用。默认每方向10篇，可调高；候选不足时会少推荐。真实预览和演示不占配额。</small></label>
-      <label>每方向每轮候选抓取目标<input name="candidate_limit" type="number" min="30" max="1000" step="1" required><small>默认200，最多1000；这是跨来源抓取目标，去重后可能更少，与本周剩余推荐名额无关。批次中可继续下一页真实预览。</small></label>
+      <div class="form-grid"><label>本周核心候选数量<input name="core_count" type="number" min="0" max="100" step="1" required><small>每方向默认5篇；优先完整核心概念匹配且有摘要的论文。</small></label><label>本周相关候选数量<input name="related_count" type="number" min="0" max="100" step="1" required><small>每方向默认15篇；包含邻近方向及标题相关但缺摘要的论文，可评分。</small></label></div>
+      <p class="form-note">按两组目标逐步扩大来源、同义词及分页检索，不再固定一次抓取200条。默认推送5＋15篇；来源不足时如实列出缺口，来源不足时会说明原因。每周自动运行保存一次历史，手动重新检索更新当前测试结果。</p>
+      <button id="demo-run" type="button" class="secondary compact">离线演示（合成样例）</button>
       <fieldset class="semantic-settings"><legend>可选本地语义增强</legend><label class="check-line"><input name="semantic_enabled" type="checkbox">使用 Sentence Transformers 辅助排序</label><label>已下载模型目录<input name="semantic_model_dir" placeholder="_shared/models/multilingual-e5-small"><small>相对个人数据目录的路径，须在 _shared/models 下。留空使用默认位置；计算在本机 CPU 上完成。</small></label><label>语义排序权重<input name="semantic_weight" type="number" min="0" max="0.5" step="0.05"><small>默认0.25。语义相似度用于排序，不是相关概率，也不能替代摘要核验。</small></label><p id="semantic-status" class="form-note"></p><button id="semantic-setup" type="button" class="secondary compact">下载本地语义模型</button><p class="small">首次使用先按文档安装可选依赖。点击下载会连接模型仓库；未安装或加载失败时回退普通规则模式，不自动安装依赖。</p></fieldset>
-      <label class="check-line"><input name="publisher_enabled" type="checkbox">启用 Elsevier 官方接口补摘要及授权 PDF 下载</label>
-      <p class="form-note">导出论文 PDF 时自动打开论文原文及机构访问入口。首次在下载浏览器选择学校并登录；程序运行期间复用登录，关闭程序后清除。机构无法获取时自动按 DOI 查询 Sci-Hub，无需填写链接。页面验证或学校登录需在浏览器完成。</p>
+      <label class="check-line"><input name="publisher_enabled" type="checkbox">启用 Elsevier 官方接口补摘要</label>
       <p id="access-status" class="form-note"></p>
       <label class="check-line schedule-check"><input name="schedule_enabled" type="checkbox">启用每周自动推荐</label>
       <div class="form-grid"><label>星期<select name="day"><option value="0">周一</option><option value="1">周二</option><option value="2">周三</option><option value="3">周四</option><option value="4">周五</option><option value="5">周六</option><option value="6">周日</option></select></label><label>时间<input name="time" type="time" required></label></div>
@@ -66,8 +66,6 @@
       <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button type="submit" class="primary">保存设置</button></div>
     </form>
   </dialog>
-  <input id="pdf-import-file" type="file" accept="application/pdf,.pdf" hidden>
-  <dialog id="abstract-dialog"><form id="abstract-form"><div class="dialog-heading"><h2>核对导入论文的摘要</h2><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><p id="import-paper-title"></p><label>摘要<textarea name="abstract" rows="12" minlength="80" maxlength="12000" required></textarea></label><p>请核对论文归属与摘要内容。确认后用于后续检索评分；历史推荐保持原样。可以关闭窗口，仅保留 PDF。</p><div class="dialog-actions"><button type="button" class="secondary close-dialog">仅保存PDF</button><button type="submit" class="primary">确认摘要</button></div></form></dialog>
   <div id="toast" class="toast hidden" role="status"></div>
 </body>
 </html>

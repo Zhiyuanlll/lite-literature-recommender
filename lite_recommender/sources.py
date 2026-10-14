@@ -302,7 +302,7 @@ def _cached(path: Path | None, max_age: float) -> bytes | None:
 def _fetch(url: str, profile: dict, source: str, warnings: list[str]) -> bytes:
     cache_path = _cache_path(profile, url)
     body = _cached(cache_path, 24 * 3600)
-    if body is not None:
+    if body is not None and not profile.get("_refresh_metadata"):
         return body
     timeout = max(2, min(60, float(profile.get("http_timeout", 12))))
     headers = {}
@@ -357,6 +357,20 @@ def _queries(profile: dict) -> list[dict]:
     helper as the ranker so that a third keyword is never silently omitted.
     """
     groups = normalize_concepts(profile)
+    variant = profile.get('_search_variant', 0)
+    if variant and groups:
+        anchor = groups[0][0]
+        expanded = []
+        if variant == 1:
+            for group in groups[1:]:
+                for term in group[:3]:
+                    expanded.append({'terms':[anchor,term],'mode':'relevance'})
+        else:
+            for term in _strings(profile.get('method_terms'))[:3]:
+                expanded.append({'terms':[anchor,term],'mode':'relevance'})
+            if len(groups)>1:
+                expanded.append({'terms':[groups[0][-1],groups[1][-1]],'mode':'recent'})
+        if expanded:return expanded[:6]
     methods = _strings(profile.get("method_terms"))
     questions = _strings(profile.get("questions") or profile.get("current_questions"))
     if not groups:

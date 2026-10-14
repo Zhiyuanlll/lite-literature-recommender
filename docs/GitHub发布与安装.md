@@ -7,9 +7,9 @@
 从本仓库右侧 **Releases** 进入稳定发行页，下载维护者上传的：
 
 ```text
-Lite_Recommender_v2.1.1.zip
-Lite_Recommender_v2.1.1.zip.sha256
-Lite_Recommender_v2.1.1.MANIFEST.json
+Lite_Recommender_v2.2.0.zip
+Lite_Recommender_v2.2.0.zip.sha256
+Lite_Recommender_v2.2.0.MANIFEST.json
 ```
 
 发行 ZIP 包括程序、网页资源、启动脚本、使用文档、通用方向示例和测试。旁边的 `Source code (zip/tar.gz)` 是 GitHub 自动生成的源码快照，也可运行，但不等于维护者构建并校验过的发行包。
@@ -17,20 +17,20 @@ Lite_Recommender_v2.1.1.MANIFEST.json
 校验 SHA-256。Linux：
 
 ```bash
-sha256sum -c Lite_Recommender_v2.1.1.zip.sha256
+sha256sum -c Lite_Recommender_v2.2.0.zip.sha256
 ```
 
 macOS：
 
 ```bash
-shasum -a 256 Lite_Recommender_v2.1.1.zip
+shasum -a 256 Lite_Recommender_v2.2.0.zip
 ```
 
 Windows PowerShell：
 
 ```powershell
-Get-FileHash .\Lite_Recommender_v2.1.1.zip -Algorithm SHA256
-Get-Content .\Lite_Recommender_v2.1.1.zip.sha256
+Get-FileHash .\Lite_Recommender_v2.2.0.zip -Algorithm SHA256
+Get-Content .\Lite_Recommender_v2.2.0.zip.sha256
 ```
 
 比对完整哈希值。校验值用于完整性核对，不是发布者身份签名；请从可信的仓库发行页取得文件和校验值。
@@ -42,7 +42,7 @@ Get-Content .\Lite_Recommender_v2.1.1.zip.sha256
 
    ```text
    LiteratureTools/
-   ├── Lite_Recommender_v2.1.1/       程序，可以更换版本
+   ├── Lite_Recommender_v2.2.0/       程序，可以更换版本
    └── LiteRecommenderData/           个人数据，升级时继续保留
    ```
 
@@ -83,7 +83,7 @@ Linux 已实际验收。Windows 与 macOS 的说明和脚本未在本发布准�
 
 ## 第一轮推荐
 
-添加自己的研究方向，先用「离线演示」认识界面，再用「检索预览」调试真实检索词。预览不占周配额，不改变正式推送去重记录，不提供评分。启用方向并点击「检索并推荐」后才能保存正式反馈。
+添加并启用自己的研究方向，用「重选本周推荐」生成可评分清单；保存全部反馈后，可进行「下周预览」或「评分后加速迭代」。三种操作排除已展示论文。离线演示位于设置中。
 
 「设置与定时运行」中的每方向每周推荐上限默认 10 篇，可设置更高的正整数；所有方向使用同一上限设置，但独立计数。低分不会退回已正式推送的名额，筛掉的候选和空批次不占名额。电脑和服务需保持运行，内置周调度才会执行。
 

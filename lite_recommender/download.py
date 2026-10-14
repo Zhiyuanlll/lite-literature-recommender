@@ -300,13 +300,18 @@ def download_run(service, run_id: str, min_rating: int = 4, select_all: bool = F
                         item["status"] = "already_exists"
                     else:
                         from .access import configuration, is_elsevier, official_pdf
-                        if getattr(service, "settings", {}).get("publisher_access", {}).get("enabled") and configuration()["elsevier_key_configured"] and is_elsevier(paper):
-                            try:
-                                item.update(official_pdf(paper, destination))
-                                item["status"] = "downloaded"
-                            except Exception:
-                                item["publisher_attempt"] = "Elsevier API 未取得有效PDF，已尝试后续下载来源"
                         urls = _links(paper)
+                        if not urls and getattr(service,"settings",{}).get("recommendation_counts"):
+                            # The article page may publish a PDF endpoint even
+                            # when Crossref/OpenAlex did not include that link.
+                            from .homepage import fetch
+                            try:
+                                metadata = fetch(paper)
+                                paper = {**paper, **metadata}
+                                if metadata:service.store.upsert_paper(paper)
+                                urls = _links(paper)
+                            except Exception:
+                                pass
                         if item.get("status") == "downloaded":
                             pass
                         elif not urls:
@@ -325,6 +330,13 @@ def download_run(service, run_id: str, min_rating: int = 4, select_all: bool = F
                                 item["attempt_errors"] = errors
                             if "status" not in item:
                                 item["status"] = "failed"
+                        if item.get("status") != "downloaded" and getattr(service, "settings", {}).get("publisher_access", {}).get("enabled") and configuration()["elsevier_key_configured"] and is_elsevier(paper):
+                            try:
+                                item.pop("message", None)
+                                item.update(official_pdf(paper, destination))
+                                item["status"] = "downloaded"
+                            except Exception:
+                                item["publisher_attempt"] = "Elsevier API 未取得有效PDF，已尝试后续下载来源"
                         if item.get("status") != "downloaded" and browser is not None:
                             try:
                                 item.pop("message", None)
