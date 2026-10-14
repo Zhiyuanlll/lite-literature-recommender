@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="lite-token" content="__LITE_TOKEN__">
+  <meta name="color-scheme" content="light">
+  <title>Lite Recommender · 文献推荐</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Lite Recommender 首页"><span class="brand-mark">Lr</span><span>Lite Recommender<small>文献推荐与反馈</small></span></a>
+    <div class="sidebar-heading"><span>研究方向</span><button id="add-topic" class="icon-button" aria-label="新增研究方向">＋</button></div>
+    <p class="sidebar-help">勾选本轮方向；未启用方向可做离线演示。</p>
+    <div id="topic-list"></div>
+    <div class="sidebar-footer"><span class="local-dot"></span>本机数据 · 仅本机访问<button id="settings-open" class="secondary full">设置与定时运行</button></div>
+  </aside>
+  <main>
+    <header class="page-header">
+      <div><p class="eyebrow">YOUR RESEARCH, IN FOCUS</p><h1>把时间留给值得读的论文</h1><p class="subtitle">选择研究问题，读完后评分，让下一轮更贴近你的方向。</p></div>
+      <div class="header-actions"><button id="preview-run" class="secondary" title="真实文献检索，不占本周配额，可包含已推荐论文">检索预览</button><button id="demo-run" class="secondary">离线演示</button><button id="real-run" class="primary">检索并推荐 <span aria-hidden="true">↗</span></button></div>
+    </header>
+    <section class="stats" aria-label="项目概览"><div><span>活跃方向</span><strong id="stat-topics">—</strong></div><div><span>每周推荐上限</span><strong id="stat-budget">—</strong><small id="budget-used"></small></div><div><span>推荐轮次</span><strong id="stat-runs">—</strong></div><div><span>有效评分</span><strong id="stat-feedback">—</strong></div></section>
+    <div id="job-status" class="job-status hidden" role="status"></div>
+    <div id="notice" class="notice hidden" role="status"></div>
+    <section class="feed" aria-label="推荐文献">
+      <div class="feed-heading"><div><h2>本轮阅读清单 <span id="paper-count"></span></h2><p id="run-meta">先添加方向，或用离线演示了解完整流程。</p></div><div class="feed-controls"><label class="sr-only" for="run-select">选择历史推荐</label><select id="run-select"><option value="">尚无推荐记录</option></select><div class="export-menu"><button id="export-toggle" class="secondary" disabled>导出 ▾</button><div id="export-options" class="dropdown hidden"><button id="export-pdfs" class="text-button">下载论文 PDF（ZIP）</button><a id="export-bib" href="#">BibTeX 引文</a><a id="export-json" href="#">JSON 数据</a><a id="export-markdown" href="#">Markdown 周报</a></div></div></div></div>
+      <div id="run-warnings"></div><div id="pdf-report" class="notice hidden" aria-live="polite"></div>
+      <div id="filter-bar" class="filter-bar hidden"><label for="paper-filter">筛选方向</label><select id="paper-filter"><option value="">全部方向</option></select><label class="check-line"><input id="unrated-only" type="checkbox">只看待评分</label></div>
+    <div id="papers"><div class="empty-state"><div class="empty-symbol" aria-hidden="true">⌘</div><h3>从一个明确的研究问题开始</h3><p>不同领域都能使用。建立小方向，配置问题、关键词与方法偏好，再开始你的第一轮推荐。</p><button id="empty-add" class="primary">新增研究方向</button><p class="small">离线演示使用合成样例，非真实论文；演示评分与真实推荐隔离。</p></div></div>
+    </section>
+    <footer class="main-footer">Lite Recommender <span>适合长期研究的轻量文献工作台</span><button id="backup" class="text-button">下载完整数据备份</button></footer>
+  </main>
+  <dialog id="topic-dialog">
+    <form id="topic-form"><div class="dialog-heading"><div><p class="eyebrow">RESEARCH TOPIC</p><h2 id="topic-dialog-title">新增研究方向</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
+      <p class="form-intro">每个小方向保留独立评分；大方向只用于分组。关键词以英文为主，每行一个词组。</p>
+      <div class="form-grid"><label>方向名称<input name="title" required maxlength="100" placeholder="例如 HEA 位错迁移率"></label><label>方向 ID<input name="id" required pattern="[A-Za-z0-9_\u4e00-\u9fff-]+" maxlength="80" placeholder="HEA_mobility"><small>用于目录和数据关联，建立后保持不变。</small></label><label>大方向分组<input name="group" required maxlength="100" placeholder="例如 HEA、DDD、超材料"></label><label>研究阶段<select name="stage"><option value="survey">综述入门</option><option value="gap">候选 gap</option><option value="focus">聚焦跟踪</option></select></label></div>
+      <label>当前研究问题<textarea name="questions" rows="3" required placeholder="每行一个问题；越具体，推荐理由越清楚。"></textarea></label>
+      <div class="form-grid"><label>主题关键词<textarea name="keywords" rows="4" required placeholder="high entropy alloy&#10;dislocation mobility"></textarea></label><label>方法偏好<textarea name="method_terms" rows="4" placeholder="molecular dynamics&#10;Peierls Nabarro"></textarea></label><label>排除词<textarea name="exclude_terms" rows="3" placeholder="不需要的主题，每行一个。"></textarea></label><div class="form-note">不同材料、温度或方法可先写进同一方向。只有研究问题和评分标准明显不同，才需要拆成新方向。</div></div>
+      <label class="check-line"><input name="active" type="checkbox" checked>启用此方向，参与定时推荐</label>
+      <p class="form-error hidden" role="alert"></p>
+      <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button type="submit" class="primary">保存方向</button></div>
+    </form>
+  </dialog>
+  <dialog id="settings-dialog">
+    <form id="settings-form"><div class="dialog-heading"><div><p class="eyebrow">WORKSPACE SETTINGS</p><h2>设置与定时运行</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
+      <label>所有方向每周总推荐上限<input name="budget" type="number" min="1" step="1" required><small>每周真实推荐合计不超过上限；合适候选不足时会少推荐。默认10篇，可调高。真实预览和演示不占配额。</small></label>
+      <label class="check-line schedule-check"><input name="schedule_enabled" type="checkbox">启用每周自动推荐</label>
+      <div class="form-grid"><label>星期<select name="day"><option value="0">周一</option><option value="1">周二</option><option value="2">周三</option><option value="3">周四</option><option value="4">周五</option><option value="5">周六</option><option value="6">周日</option></select></label><label>时间<input name="time" type="time" required></label></div>
+      <label>时区<input name="timezone" required placeholder="Asia/Shanghai"></label>
+      <div class="form-note">内置定时器在本地服务运行时检查时间。电脑需开机并联网；服务停止时不会触发。运行结果保存在本地，不发送邮件或消息。</div>
+      <p class="form-error hidden" role="alert"></p>
+      <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button type="submit" class="primary">保存设置</button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast hidden" role="status"></div>
+</body>
+</html>

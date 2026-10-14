@@ -1,0 +1,15 @@
+{
+  "topic_id": "DDD_junction",
+  "title": "离散位错动力学中的交结形成与解离",
+  "group": "DDD",
+  "questions": [
+    "交结强度如何依赖交线几何和加载路径？",
+    "离散位错模型中的迁移率假设如何影响交结寿命？"
+  ],
+  "keywords": ["dislocation junction", "discrete dislocation dynamics"],
+  "method_terms": ["junction strength", "dislocation mobility", "three dimensional simulation"],
+  "exclude_terms": ["Josephson junction", "semiconductor junction"],
+  "stage": "focus",
+  "active": false,
+  "profile_version": 1
+}

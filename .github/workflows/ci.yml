@@ -1,0 +1,77 @@
+name: Tests and portable packages
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit or tag to verify for a release
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.10', '3.11', '3.12', '3.13']
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Offline unit and localhost HTTP tests
+        run: python -B -m unittest discover -s tests -v
+      - name: Clean workspace and CLI demo
+        run: |
+          python -m lite_recommender --workspace "ci-smoke-workspace" init --examples
+          python -m lite_recommender --workspace "ci-smoke-workspace" run --demo --run-id ci-demo
+      - name: Build tooling (application has no runtime dependencies)
+        run: python -m pip install --upgrade setuptools wheel
+      - name: Build clean allowlisted ZIP and wheel
+        run: python scripts/build_release.py --output-dir dist --wheel
+      - name: Check public artifacts and hashes
+        run: python scripts/check_release_content.py --dist dist --require-wheel
+      - name: Verify a wheel installation outside the source tree
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import tempfile
+          wheel = next(Path('dist').glob('*.whl')).resolve()
+          with tempfile.TemporaryDirectory(prefix='lite-wheel-ci-') as temp:
+              target = Path(temp) / 'installed'
+              subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--target', str(target), str(wheel)], check=True)
+              env = dict(os.environ, PYTHONPATH=str(target))
+              subprocess.run([sys.executable, '-B', '-m', 'lite_recommender', 'verify'], cwd=temp, env=env, check=True)
+      - name: Save tested release artifacts
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: tested-portable-packages
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

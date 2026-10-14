@@ -1,0 +1,15 @@
+{
+  "topic_id": "robot_embodied",
+  "title": "具身机器人操作中的触觉与迁移",
+  "group": "机器人",
+  "questions": [
+    "触觉反馈在接触丰富的操作任务中能提供哪些增益？",
+    "仿真到真实迁移在不同物体及场景中的验证边界是什么？"
+  ],
+  "keywords": ["robot manipulation", "embodied intelligence", "tactile sensing"],
+  "method_terms": ["sim to real", "imitation learning", "contact rich manipulation"],
+  "exclude_terms": ["purely virtual agent", "autonomous driving"],
+  "stage": "gap",
+  "active": false,
+  "profile_version": 1
+}

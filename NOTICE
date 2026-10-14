@@ -1,0 +1,15 @@
+Lite Recommender v2
+
+This release is an independent implementation developed from the user's
+requirements and evaluation of a user-provided earlier HEA literature
+recommendation project. The earlier project supplied workflow ideas and
+compatibility context. Its source code, private feedback, cached papers,
+credentials and personal research profiles are not included in this release.
+
+The v2 application source is distributed under the MIT License in LICENSE.
+Metadata retrieved during use remains subject to each upstream service's
+terms. Article full texts retain their respective copyright and access terms.
+The application does not grant additional rights to redistribute those files.
+
+Example research questions and synthetic demonstration papers are examples;
+they are not findings from a literature search or verified research gaps.

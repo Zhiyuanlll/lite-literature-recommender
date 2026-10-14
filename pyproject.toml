@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lite-literature-recommender"
+version = "2.0.4"
+description = "Local, explainable multi-topic literature recommendation and feedback"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Lite Recommender contributors"}]
+dependencies = []
+keywords = ["literature", "research", "recommendation", "feedback", "local-first"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: OS Independent",
+]
+
+[project.scripts]
+lite-recommender = "lite_recommender.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["lite_recommender*"]
+
+[tool.setuptools.package-data]
+lite_recommender = ["static/*", "examples/*.json"]

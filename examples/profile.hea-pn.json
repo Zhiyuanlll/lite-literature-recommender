@@ -1,0 +1,15 @@
+{
+  "topic_id": "HEA_PN",
+  "title": "HEA 中位错芯与 Peierls–Nabarro 模型",
+  "group": "HEA",
+  "questions": [
+    "化学无序如何影响位错芯结构及局部滑移能垒？",
+    "不同弹性核和层错能输入对 Peierls–Nabarro 预测有何影响？"
+  ],
+  "keywords": ["high entropy alloy", "dislocation core", "Peierls Nabarro"],
+  "method_terms": ["generalized stacking fault energy", "atomistic simulation"],
+  "exclude_terms": ["battery", "catalysis"],
+  "stage": "survey",
+  "active": false,
+  "profile_version": 1
+}

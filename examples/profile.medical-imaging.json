@@ -1,0 +1,15 @@
+{
+  "topic_id": "medical_imaging",
+  "title": "医学影像分割的跨机构泛化",
+  "group": "医学影像",
+  "questions": [
+    "跨机构外部验证如何衡量分割模型的泛化？",
+    "域适配能否减少不同设备及扫描协议造成的性能变化？"
+  ],
+  "keywords": ["medical image segmentation", "external validation", "domain shift"],
+  "method_terms": ["domain adaptation", "multi center", "uncertainty estimation"],
+  "exclude_terms": ["natural image", "satellite imagery"],
+  "stage": "survey",
+  "active": false,
+  "profile_version": 1
+}
